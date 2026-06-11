@@ -9,6 +9,7 @@ env/
 models/
 *.pdf
 test123.py
+redis_data/
 
 # IDE
 .vscode/

@@ -8,3 +8,4 @@ __pycache__
 tests
 *.pdf
 test123.py
+redis_data
