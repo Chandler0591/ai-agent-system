@@ -6,6 +6,9 @@ __pycache__/
 venv/
 env/
 .env
+models/
+*.pdf
+test123.py
 
 # IDE
 .vscode/

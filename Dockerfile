@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制应用代码
 COPY . .
 
+# 创建数据目录
+RUN mkdir -p /app/chroma_data
+
 # 暴露端口
 EXPOSE 8000
 

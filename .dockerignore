@@ -6,3 +6,5 @@ __pycache__
 .gitignore
 *.md
 tests
+*.pdf
+test123.py
