@@ -314,18 +314,7 @@ ai-agent-system/
 - 量化评估（HitRate/MRR/NDCG，基于真实检索）
 - Web 可视化前端
 
-### ✅ v2.1 生产就绪（当前）
-- JWT 认证 + Token 黑名单 + 登出废止
-- 多租户 RBAC（users + user_tenants 表，租户权限控制）
-- 默认共享租户（default 文档对所有租户可见）
-- Web 前端登录（用户名/密码/租户选择）
-- 知识库上传 / 检索 / 文档列表全链路租户隔离
-- 同名文件覆盖上传（?force=true）
-- 容器时区统一 Asia/Shanghai
-- API 限流白名单（/api/task/ 轮询不限流）
-- 20 项冒烟测试（含生产认证 + 租户隔离）
-
-### ✅ v2.0 企业级升级（第9-12周）
+### ✅ v2.0 企业级升级
 - JWT 认证鉴权 + Token 黑名单
 - API 滑动窗口限流
 - 多租户数据隔离（ContextVar）
@@ -338,6 +327,17 @@ ai-agent-system/
 - Streamlit 企业前端（4模式）
 - Locust 压力测试（3种用户画像）
 - 9容器 Docker Compose 全栈部署
+
+### ✅ v2.1 生产就绪（当前）
+- JWT 认证 + Token 黑名单 + 登出废止
+- 多租户 RBAC（users + user_tenants 表，租户权限控制）
+- 默认共享租户（default 文档对所有租户可见）
+- Web 前端登录（用户名/密码/租户选择）
+- 知识库上传 / 检索 / 文档列表全链路租户隔离
+- 同名文件覆盖上传（?force=true）
+- 容器时区统一 Asia/Shanghai
+- API 限流白名单（/api/task/ 轮询不限流）
+- 20 项冒烟测试（含生产认证 + 租户隔离）
 
 ### 🔜 待完善
 - 流式输出体验优化
