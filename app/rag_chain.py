@@ -38,8 +38,8 @@ class RAGChain:
             return {"answer": answer, "sources": [], "has_context": False}
         
         # 1. 检索相关知识
-        context = knowledge_base.get_context(question, top_k)
         sources = knowledge_base.search(question, top_k)
+        context = knowledge_base.get_context(question, top_k)
         
         if not context:
             return {

@@ -68,6 +68,9 @@
         
         .file-list {
             margin-top: 20px;
+            max-height: 280px;
+            overflow-y: auto;
+            padding-right: 4px;
         }
         
         .file-item {
@@ -86,6 +89,22 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+        
+        .file-progress {
+            width: 100%;
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+        
+        .file-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 2px;
+            transition: width 0.5s ease;
         }
         
         .file-status {
@@ -121,6 +140,77 @@
         .stats-label { color: #666; }
         .stats-value { font-weight: 600; color: #667eea; }
         
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .refresh-btn {
+            background: none;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 3px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #666;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover {
+            background: #f0f0f0;
+            border-color: #bbb;
+        }
+        
+        .file-item-delete {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #ccc;
+            font-size: 14px;
+            padding: 2px 6px;
+            transition: color 0.2s;
+        }
+        .file-item-delete:hover {
+            color: #f44336;
+        }
+        
+        .file-item-chunks {
+            font-size: 11px;
+            color: #999;
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        
+        .clear-all-btn {
+            width: 100%;
+            margin-top: 8px;
+            padding: 10px 0;
+            background: #fff;
+            border: 1px solid #ffcdd2;
+            border-radius: 10px;
+            color: #c62828;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .clear-all-btn:hover {
+            background: #ffebee;
+            border-color: #ef9a9a;
+        }
+        
+        .file-list-empty {
+            color: #ccc;
+            text-align: center;
+            padding: 24px 12px;
+            font-size: 13px;
+        }
+        
         /* 聊天区域 */
         .chat-area {
             background: white;
@@ -134,8 +224,26 @@
         .chat-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 16px 20px;
+            padding: 12px 20px;
             font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .clear-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+        
+        .clear-btn:hover {
+            background: rgba(255,255,255,0.35);
         }
         
         .chat-messages {
@@ -216,29 +324,6 @@
             transform: scale(1.02);
         }
         
-        .mode-selector {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        
-        .mode-btn {
-            flex: 1;
-            padding: 8px;
-            border: 1px solid #ddd;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.3s;
-        }
-        
-        .mode-btn.active {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
-        }
-        
         .loading {
             display: inline-block;
             width: 20px;
@@ -260,14 +345,43 @@
         <div class="sidebar">
             <h2>📄 知识库管理</h2>
             
+            <!-- 登录区域 -->
+            <div id="loginSection" style="margin-bottom:12px;">
+                <div class="section-header"><span>🔐 登录</span></div>
+                <input id="loginUser" type="text" placeholder="用户名" style="width:100%;padding:6px;margin-bottom:4px;border-radius:4px;border:1px solid #ddd;font-size:13px;">
+                <input id="loginPass" type="password" placeholder="密码" style="width:100%;padding:6px;margin-bottom:4px;border-radius:4px;border:1px solid #ddd;font-size:13px;">
+                <select id="tenantSelect" style="width:100%;padding:6px;border-radius:4px;border:1px solid #ddd;margin-bottom:4px;font-size:13px;">
+                    <option value="">加载租户...</option>
+                </select>
+                <button onclick="doLogin()" style="width:100%;padding:6px;background:#667eea;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">登录</button>
+                <div id="loginMsg" style="font-size:12px;margin-top:4px;"></div>
+            </div>
+            
+            <!-- 已登录状态 -->
+            <div id="loggedInSection" style="display:none;margin-bottom:12px;">
+                <div style="background:#e8f5e9;padding:8px;border-radius:6px;font-size:13px;">
+                    ✅ <b id="displayUser">admin</b> @ <b id="displayTenant">default</b>
+                    <button onclick="doLogout()" style="float:right;background:none;border:none;color:#c62828;cursor:pointer;">登出</button>
+                </div>
+            </div>
+            
+            <!-- 未登录提示 -->
+            <div id="noLoginHint" style="background:#fff3cd;padding:8px;border-radius:6px;font-size:12px;margin-bottom:12px;color:#856404;">
+                ⚠️ 未登录，所有操作归 <b>default</b> 租户（上方选租户后需点登录才生效）
+            </div>
+            
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📤</div>
                 <div>点击或拖拽上传PDF</div>
                 <input type="file" id="fileInput" accept=".pdf" multiple>
             </div>
             
+            <div class="section-header">
+                <span>📋 已上传文档</span>
+                <button class="refresh-btn" onclick="loadKbDocuments()">🔄 刷新</button>
+            </div>
             <div class="file-list" id="fileList">
-                <div style="color: #999; text-align: center; padding: 20px;">暂无上传文件</div>
+                <div style="color: #999; text-align: center; padding: 20px;">加载中...</div>
             </div>
             
             <div class="stats">
@@ -280,13 +394,14 @@
                     <span class="stats-value" id="systemStatus">运行中</span>
                 </div>
             </div>
+            <button class="clear-all-btn" onclick="clearKnowledgeBase()">🗑️ 清空知识库</button>
         </div>
         
         <!-- 聊天区域 -->
         <div class="chat-area">
             <div class="chat-header">
-                🤖 AI知识库助手
-                <span style="font-size: 12px; margin-left: 10px;" id="modeBadge">RAG模式</span>
+                <span>🤖 AI知识库助手</span>
+                <button class="clear-btn" onclick="clearChat()">🗑️ 清空对话</button>
             </div>
             
             <div class="chat-messages" id="chatMessages">
@@ -301,11 +416,6 @@
                 </div>
             </div>
             
-            <div class="mode-selector">
-                <button class="mode-btn active" data-mode="rag">📚 RAG知识库模式</button>
-                <button class="mode-btn" data-mode="tool">🔧 工具调用模式</button>
-            </div>
-            
             <div class="chat-input-area">
                 <input type="text" class="chat-input" id="chatInput" placeholder="输入你的问题...">
                 <button class="send-btn" id="sendBtn">发送</button>
@@ -315,8 +425,10 @@
     
     <script>
         // 配置
-        const API_BASE = 'http://localhost:8000';
-        let currentMode = 'rag';  // rag 或 tool
+        const API_BASE = 'http://localhost:8000/api';
+        
+        // 会话ID —— 整个页面生命周期内保持不变，保证多轮对话记忆
+        let sessionId = 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
         
         // DOM元素
         const chatMessages = document.getElementById('chatMessages');
@@ -330,9 +442,102 @@
         // 已上传文件列表
         let uploadedFiles = [];
         
+        // 租户状态
+        let currentTenant = 'default';
+        let authToken = '';
+        let currentUser = '';
+        
+        function getAuthHeaders() {
+            return authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+        }
+        
+        async function loadTenants() {
+            try {
+                const resp = await fetch(`${API_BASE}/tenants`);
+                const data = await resp.json();
+                const sel = document.getElementById('tenantSelect');
+                sel.innerHTML = data.tenants.map(t => 
+                    `<option value="${t.tenant_id}">${t.name}</option>`
+                ).join('');
+            } catch (e) {
+                document.getElementById('tenantSelect').innerHTML = '<option>加载失败</option>';
+            }
+        }
+        
+        async function doLogin() {
+            const username = document.getElementById('loginUser').value.trim();
+            const password = document.getElementById('loginPass').value.trim();
+            const tenantId = document.getElementById('tenantSelect').value;
+            const msgEl = document.getElementById('loginMsg');
+            if (!username || !tenantId) { msgEl.innerHTML = '<span style="color:red">请填写用户名并选择租户</span>'; return; }
+            try {
+                const resp = await fetch(`${API_BASE}/token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&tenant_id=${encodeURIComponent(tenantId)}`
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    authToken = data.access_token;
+                    currentTenant = tenantId;
+                    currentUser = username;
+                    document.getElementById('loginSection').style.display = 'none';
+                    document.getElementById('loggedInSection').style.display = 'block';
+                    document.getElementById('noLoginHint').style.display = 'none';
+                    document.getElementById('displayUser').innerText = username;
+                    document.getElementById('displayTenant').innerText = tenantId;
+                    msgEl.innerHTML = '';
+                    await loadKbDocuments();
+                    await loadStats();
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    msgEl.innerHTML = `<span style="color:red">${err.detail || '登录失败'}</span>`;
+                }
+            } catch (e) {
+                msgEl.innerHTML = '<span style="color:red">网络错误</span>';
+            }
+        }
+        
+        function doLogout() {
+            if (authToken) {
+                fetch(`${API_BASE}/revoke`, { method: 'POST', headers: getAuthHeaders() }).catch(()=>{});
+            }
+            authToken = '';
+            currentTenant = 'default';
+            currentUser = '';
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('loggedInSection').style.display = 'none';
+            document.getElementById('noLoginHint').style.display = 'block';
+            document.getElementById('loginUser').value = '';
+            document.getElementById('loginPass').value = '';
+            loadStats();
+            loadKbDocuments();
+        }
+        
+        // 回车登录
+        document.getElementById('loginPass').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') doLogin();
+        });
+        
+        // 选租户自动填账号密码
+        const tenantCreds = {
+            'default': ['admin', 'admin123'],
+            'demo1': ['demo1', 'demo1123'],
+            'demo2': ['demo2', 'demo2123'],
+        };
+        document.getElementById('tenantSelect').addEventListener('change', (e) => {
+            const creds = tenantCreds[e.target.value];
+            if (creds) {
+                document.getElementById('loginUser').value = creds[0];
+                document.getElementById('loginPass').value = creds[1];
+            }
+        });
+        
         // 初始化
         async function init() {
+            await loadTenants();
             await loadStats();
+            await loadKbDocuments();
             setupEventListeners();
         }
         
@@ -359,21 +564,9 @@
             fileInput.addEventListener('change', (e) => {
                 handleFiles(e.target.files);
             });
-            
-            // 模式切换
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    currentMode = btn.dataset.mode;
-                    document.getElementById('modeBadge').textContent = 
-                        currentMode === 'rag' ? 'RAG模式' : '工具调用模式';
-                    addMessage('system', `已切换到${currentMode === 'rag' ? 'RAG知识库模式' : '工具调用模式'}`);
-                });
-            });
         }
         
-        // 处理文件上传
+        // 处理文件上传（带进度轮询）
         async function handleFiles(files) {
             for (const file of files) {
                 if (file.type !== 'application/pdf') {
@@ -382,7 +575,7 @@
                 }
                 
                 // 添加到列表（处理中）
-                addFileToList(file.name, 'processing');
+                const fileId = addFileToList(file.name, 'processing');
                 
                 // 上传
                 const formData = new FormData();
@@ -391,31 +584,91 @@
                 try {
                     const response = await fetch(`${API_BASE}/rag/upload`, {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        headers: getAuthHeaders()
                     });
                     
                     if (response.ok) {
                         const data = await response.json();
-                        updateFileStatus(file.name, 'success', data.chunks);
-                        addMessage('system', `已上传 ${file.name} (${data.chunks}个文档块)`);
+                        const taskId = data.task_id;
+                        
+                        // 轮询任务状态
+                        await pollTaskStatus(taskId, fileId, file.name);
                         await loadStats();
+                        await loadKbDocuments();
+                    } else if (response.status === 409) {
+                        updateFileStatus(fileId, 'duplicate');
+                        const force = confirm(`${file.name} 已存在，是否强制覆盖？`);
+                        if (force) {
+                            updateFileStatus(fileId, 'processing');
+                            const retryResp = await fetch(`${API_BASE}/rag/upload?force=true`, {
+                                method: 'POST',
+                                body: formData,
+                                headers: getAuthHeaders()
+                            });
+                            if (retryResp.ok) {
+                                const data = await retryResp.json();
+                                await pollTaskStatus(data.task_id, fileId, file.name);
+                                await loadStats();
+                                await loadKbDocuments();
+                            } else {
+                                updateFileStatus(fileId, 'error');
+                            }
+                        } else {
+                            addMessage('system', `⚠️ ${file.name} 已存在，跳过`);
+                            removeFileItem(fileId);
+                        }
                     } else {
-                        updateFileStatus(file.name, 'error');
+                        updateFileStatus(fileId, 'error');
                         addMessage('system', `上传失败: ${file.name}`);
                     }
                 } catch (error) {
-                    updateFileStatus(file.name, 'error');
+                    updateFileStatus(fileId, 'error');
                     addMessage('system', `上传失败: ${error.message}`);
                 }
             }
             fileInput.value = '';
         }
         
+        // 轮询任务状态
+        async function pollTaskStatus(taskId, fileId, filename) {
+            const maxRetries = 90;  // 90 × 2s = 3分钟，大文件需要更长时间
+            for (let i = 0; i < maxRetries; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                
+                try {
+                    const resp = await fetch(`${API_BASE}/task/${taskId}`);
+                    if (!resp.ok) continue;
+                    
+                    const task = await resp.json();
+                    const progress = Math.min(100, Math.round((i + 1) / maxRetries * 100));
+                    updateFileProgress(fileId, progress);
+                    
+                    if (task.status === 'completed' || task.status === 'success') {
+                        const chunks = task.result?.chunks || task.result?.added || 0;
+                        updateFileStatus(fileId, 'success', chunks);
+                        addMessage('system', `✅ ${filename} 处理完成 (${chunks}个文档块)`);
+                        return;
+                    } else if (task.status === 'error' || task.status === 'failed') {
+                        const errMsg = task.error || task.result?.message || '';
+                        updateFileStatus(fileId, 'error');
+                        addMessage('system', `❌ ${filename} 处理失败${errMsg ? ': ' + errMsg : ''}`);
+                        return;
+                    }
+                } catch (e) {
+                    // 继续重试
+                }
+            }
+            updateFileStatus(fileId, 'error');
+            addMessage('system', `⏰ ${filename} 处理超时（文件过大，请稍后刷新查看）`);
+        }
+        
         // 添加到文件列表
         function addFileToList(filename, status) {
+            const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
-            fileItem.id = `file-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            fileItem.id = fileId;
             fileItem.innerHTML = `
                 <span class="file-name">${filename}</span>
                 <div class="file-status status-${status}"></div>
@@ -427,24 +680,45 @@
             }
             fileList.appendChild(fileItem);
             
-            uploadedFiles.push({ name: filename, status });
+            uploadedFiles.push({ id: fileId, name: filename, status });
+            return fileId;
         }
         
         // 更新文件状态
-        function updateFileStatus(filename, status, chunks = null) {
-            const id = `file-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            const element = document.getElementById(id);
+        function updateFileStatus(fileId, status, chunks = null) {
+            const element = document.getElementById(fileId);
             if (element) {
                 const statusDiv = element.querySelector('.file-status');
                 statusDiv.className = `file-status status-${status}`;
-                if (chunks) {
+                if (chunks !== null) {
                     const nameSpan = element.querySelector('.file-name');
-                    nameSpan.innerHTML = `${filename} (${chunks}块)`;
+                    const origName = nameSpan.textContent.split('(')[0].trim();
+                    nameSpan.innerHTML = `${origName} (${chunks}块)`;
+                }
+                // 移除进度条
+                const progressBar = element.querySelector('.file-progress');
+                if (progressBar && (status === 'success' || status === 'error')) {
+                    progressBar.remove();
                 }
             }
         }
         
-        // 发送消息
+        // 更新文件进度条
+        function updateFileProgress(fileId, percent) {
+            const element = document.getElementById(fileId);
+            if (!element) return;
+            let progressDiv = element.querySelector('.file-progress');
+            if (!progressDiv) {
+                progressDiv = document.createElement('div');
+                progressDiv.className = 'file-progress';
+                progressDiv.innerHTML = '<div class="file-progress-bar" style="width:0%"></div>';
+                element.appendChild(progressDiv);
+            }
+            const bar = progressDiv.querySelector('.file-progress-bar');
+            if (bar) bar.style.width = `${percent}%`;
+        }
+        
+        // 发送消息（SSE 流式）
         async function sendMessage() {
             const message = chatInput.value.trim();
             if (!message) return;
@@ -453,38 +727,135 @@
             addMessage('user', message);
             chatInput.value = '';
             
-            // 显示加载状态
-            const loadingId = addLoadingMessage();
+            // 创建流式消息容器
+            const streamId = createStreamingMessage();
+            let fullText = '';
             
             try {
-                let response;
-                if (currentMode === 'rag') {
-                    response = await fetch(`${API_BASE}/rag/ask?question=${encodeURIComponent(message)}&use_search=true`);
-                } else {
-                    response = await fetch(`${API_BASE}/chat`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message, temperature: 0.7 })
-                    });
+                const response = await fetch(`${API_BASE}/agent/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                    body: JSON.stringify({ message, mode: 'auto', session_id: sessionId })
+                });
+                
+                if (!response.ok) {
+                    updateStreamingMessage(streamId, `抱歉，出错了: ${response.status}`);
+                    finalizeStreamingMessage(streamId);
+                    return;
                 }
                 
-                removeLoadingMessage(loadingId);
+                // 读取 SSE 流
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    const reply = currentMode === 'rag' ? data.answer : data.reply;
-                    addMessage('assistant', reply);
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
                     
-                    // 显示来源（RAG模式）
-                    if (currentMode === 'rag' && data.sources && data.sources.length > 0) {
-                        addSourcesMessage(data.sources);
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // 解析 SSE 事件
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';  // 保留未完成的行
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const event = JSON.parse(line.slice(6));
+                                handleStreamEvent(event, streamId, (token) => { fullText += token; });
+                            } catch (e) {
+                                // 跳过解析失败的行
+                            }
+                        }
                     }
-                } else {
-                    addMessage('assistant', `抱歉，出错了: ${response.status}`);
                 }
+                
+                finalizeStreamingMessage(streamId);
+                
             } catch (error) {
-                removeLoadingMessage(loadingId);
-                addMessage('assistant', `抱歉，网络错误: ${error.message}`);
+                updateStreamingMessage(streamId, `抱歉，网络错误: ${error.message}`);
+                finalizeStreamingMessage(streamId);
+            }
+        }
+        
+        // 处理 SSE 事件
+        function handleStreamEvent(event, streamId, onToken) {
+            switch (event.type) {
+                case 'intent':
+                    // 忽略，仅用于日志
+                    break;
+                case 'info':
+                    updateStreamingMessage(streamId, event.data + '\n', true);
+                    break;
+                case 'token':
+                    onToken(event.data);
+                    appendToStreamingMessage(streamId, event.data);
+                    break;
+                case 'sources':
+                    if (event.data && event.data.length > 0) {
+                        addSourcesMessage(event.data);
+                    }
+                    break;
+                case 'error':
+                    appendToStreamingMessage(streamId, `\n❌ ${event.data}`);
+                    break;
+                // 'done' 不需要处理
+            }
+        }
+        
+        // 创建流式消息容器
+        function createStreamingMessage() {
+            const id = 'stream-' + Date.now();
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            messageDiv.id = id;
+            messageDiv.innerHTML = `<div class="message-content">▊</div>`;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return id;
+        }
+        
+        // 追加 token 到流式消息
+        function appendToStreamingMessage(id, token) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const content = element.querySelector('.message-content');
+            if (content) {
+                // 用 token 逐个追加
+                const text = content.textContent;
+                if (text === '▊' || text.endsWith('▊')) {
+                    content.innerHTML = formatContent(text.replace('▊', '') + token) + '▊';
+                } else {
+                    content.innerHTML = formatContent(text.slice(0, -1)) + token + '▊';
+                }
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
+        
+        // 更新流式消息（替换内容）
+        function updateStreamingMessage(id, text, append = false) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const content = element.querySelector('.message-content');
+            if (content) {
+                if (append) {
+                    const current = content.textContent.replace('▊', '');
+                    content.innerHTML = formatContent(current + text) + '▊';
+                } else {
+                    content.innerHTML = formatContent(text) + '▊';
+                }
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
+        
+        // 完成流式消息（移除光标）
+        function finalizeStreamingMessage(id) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const content = element.querySelector('.message-content');
+            if (content) {
+                content.innerHTML = content.innerHTML.replace('▊', '');
             }
         }
         
@@ -536,7 +907,7 @@
         // 加载统计
         async function loadStats() {
             try {
-                const response = await fetch(`${API_BASE}/stats`);
+                const response = await fetch(`${API_BASE}/stats`, { headers: getAuthHeaders() });
                 if (response.ok) {
                     const data = await response.json();
                     docCountSpan.textContent = data.knowledge_base?.document_count || 0;
@@ -546,8 +917,103 @@
             }
         }
         
-        // 自动刷新统计
+        // 加载知识库文档列表
+        async function loadKbDocuments() {
+            try {
+                const resp = await fetch(`${API_BASE}/kb/documents`, { headers: getAuthHeaders() });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                renderKbDocumentList(data.documents || []);
+            } catch (e) {
+                console.error('加载文档列表失败:', e);
+            }
+        }
+        
+        // 渲染文档列表
+        function renderKbDocumentList(documents) {
+            fileList.innerHTML = '';
+            if (documents.length === 0) {
+                fileList.innerHTML = '<div class="file-list-empty">暂无文档</div>';
+                return;
+            }
+            documents.forEach(doc => {
+                const div = document.createElement('div');
+                div.className = 'file-item';
+                // 截断过长的文件名
+                const displayName = doc.source.length > 28 
+                    ? doc.source.substring(0, 26) + '...' 
+                    : doc.source;
+                div.innerHTML = `
+                    <span class="file-name" title="${doc.source}">${displayName}</span>
+                    <span class="file-item-chunks">${doc.chunks}块</span>
+                    <button class="file-item-delete" data-source="${doc.source.replace(/"/g, '&quot;')}" onclick="deleteKbDocument(this.dataset.source)" title="删除">✕</button>
+                `;
+                fileList.appendChild(div);
+            });
+        }
+        
+        // 删除单个文档
+        async function deleteKbDocument(source) {
+            if (!confirm(`确定要删除 "${source}" 吗？`)) return;
+            try {
+                const resp = await fetch(`${API_BASE}/kb/documents/${encodeURIComponent(source)}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                if (resp.ok) {
+                    addMessage('system', `🗑️ 已删除: ${source}`);
+                    await loadKbDocuments();
+                    await loadStats();
+                } else {
+                    const err = await resp.json();
+                    addMessage('system', `删除失败: ${err.detail || resp.status}`);
+                }
+            } catch (e) {
+                addMessage('system', `删除失败: ${e.message}`);
+            }
+        }
+        
+        // 清空知识库
+        async function clearKnowledgeBase() {
+            if (!confirm('确定要清空整个知识库吗？此操作不可撤销！')) return;
+            try {
+                const resp = await fetch(`${API_BASE}/rag/clear`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                if (resp.ok) {
+                    addMessage('system', '🗑️ 知识库已清空');
+                    await loadKbDocuments();
+                    await loadStats();
+                }
+            } catch (e) {
+                addMessage('system', `清空失败: ${e.message}`);
+            }
+        }
+        
+        // 移除文件项（重复时使用）
+        function removeFileItem(fileId) {
+            const el = document.getElementById(fileId);
+            if (el) el.remove();
+        }
+        
+        // 自动刷新统计 + 文档列表
         setInterval(loadStats, 10000);
+        setInterval(loadKbDocuments, 15000);
+        
+        // 清空对话
+        function clearChat() {
+            if (confirm('确定要清空所有对话记录吗？')) {
+                chatMessages.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            对话已清空，有什么可以帮你的？
+                        </div>
+                    </div>`;
+                // 重置会话ID，开启全新对话
+                sessionId = 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            }
+        }
         
         // 启动
         init();

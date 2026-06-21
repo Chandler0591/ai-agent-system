@@ -1,7 +1,10 @@
 services:
+  # ========== 基础设施 ==========
   redis:
     image: redis:7-alpine
     container_name: ai-agent-redis
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "6379:6379"
     volumes:
@@ -12,22 +15,148 @@ services:
       timeout: 3s
       retries: 3
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-agent-postgres
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_DB: ai_agent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ========== 核心服务 ==========
   api:
     build: .
     container_name: ai-agent-api
     ports:
       - "8000:8000"
     environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - TZ=Asia/Shanghai
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
       - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/ai_agent
+      - MODEL_NAME=${MODEL_NAME:-deepseek-chat}
+      - EMBEDDING_MODEL_PATH=./models/BAAI/bge-small-zh-v1.5
+      - RERANKER_MODEL_PATH=./models/BAAI/bge-reranker-base
+      - SECRET_KEY=${SECRET_KEY:-prod-change-me}
+      - ENV=${ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - chroma_data:/app/chroma_data
+      - ./models:/app/models
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # ========== 异步任务 ==========
+  celery-worker:
+    build: .
+    container_name: ai-agent-celery
+    environment:
+      - TZ=Asia/Shanghai
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379
+      - CELERY_RESULT_BACKEND=redis://redis:6379
+      - EMBEDDING_MODEL_PATH=./models/BAAI/bge-small-zh-v1.5
+      - ENV=${ENV:-production}
     depends_on:
       redis:
         condition: service_healthy
     volumes:
       - ./:/app
-      - ./chroma_data:/app/chroma_data
-    command: python run.py
+      - chroma_data:/app/chroma_data
+      - ./models:/app/models
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+
+  celery-beat:
+    build: .
+    container_name: ai-agent-beat
+    environment:
+      - TZ=Asia/Shanghai
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    command: celery -A app.celery_app beat --loglevel=info
+
+  flower:
+    image: mher/flower:2.0
+    container_name: ai-agent-flower
+    environment:
+      - TZ=Asia/Shanghai
+      - CELERY_BROKER_URL=redis://redis:6379
+      - FLOWER_PORT=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery-worker
+
+  # ========== 前端 ==========
+  streamlit:
+    build: .
+    container_name: ai-agent-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - TZ=Asia/Shanghai
+      - API_BASE=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./:/app
+    command: streamlit run web/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+
+  # ========== 监控 ==========
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-agent-prometheus
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-agent-grafana
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
 
 volumes:
   redis_data:
+  postgres_data:
+  chroma_data:
+  prometheus_data:
+  grafana_data:

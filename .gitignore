@@ -8,8 +8,8 @@ env/
 .env
 models/
 *.pdf
-test123.py
 redis_data/
+chroma_data/
 
 # IDE
 .vscode/

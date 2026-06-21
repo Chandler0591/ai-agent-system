@@ -56,17 +56,17 @@ task_manager = TaskManager()
 
 
 # ========== 异步任务函数 ==========
-def process_pdf_background(task_id: str, file_path: str, filename: str):
+def process_pdf_background(task_id: str, file_path: str, filename: str, tenant_id: str = "default", force: bool = False):
     """
-    后台处理 PDF
+    后台处理 PDF（带租户隔离）
     """
     
     try:
         task_manager.update_task(task_id, "processing")
-        logger.info(f"开始处理 PDF: {filename}, task_id: {task_id}")
+        logger.info(f"开始处理 PDF: {filename}, task_id: {task_id}, tenant={tenant_id}")
         
         # 调用知识库添加 PDF
-        result = knowledge_base.add_pdf(file_path, filename)
+        result = knowledge_base.add_pdf(file_path, filename, tenant_id=tenant_id, skip_duplicate=not force)
         
         # 删除临时文件
         if os.path.exists(file_path):

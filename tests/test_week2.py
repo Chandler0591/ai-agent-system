@@ -1,14 +1,14 @@
 import requests
 import time
 
-BASE = "http://localhost:8000"
+BASE_URL = "http://localhost:8000"
 
 def test(name, msg):
     print(f"\n{'='*50}")
     print(f"测试: {name}")
     print(f"用户: {msg}")
     start = time.time()
-    resp = requests.post(f"{BASE}/chat", json={"message": msg})
+    resp = requests.post(f"{BASE_URL}/api/chat", json={"message": msg})
     elapsed = time.time() - start
     if resp.status_code == 200:
         print(f"AI: {resp.json()['reply']}")

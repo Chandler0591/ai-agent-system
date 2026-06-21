@@ -23,14 +23,12 @@ class RAGChainV2:
 ## 回答要求
 1. 只根据上下文回答，不要编造信息
 2. 如果上下文没有相关信息，明确说"没有找到相关信息"
-3. 引用具体的来源编号
-4. 回答要简洁准确
+3. 回答要简洁准确，不要使用编号引用或标注来源
 
 ## 你的回答
 """
-    def retrieve_base_hybrid(self, question: str, top_k: int = 5) -> Dict:
+    def retrieve_base_hybrid(self, question: str, top_k: int = 5, tenant_id: str = "default") -> Dict:
         """基础混合检索：BM25+向量粗召回"""
-        # 1. 检查缓存
         cached = cache_manager.get_search_results(question, top_k)
         if cached:
             logger.info("使用缓存的检索结果")
@@ -39,8 +37,7 @@ class RAGChainV2:
                 "from_cache": True
             }
 
-        # 2. 获取所有文档（从知识库）
-        all_docs = self._get_all_documents()
+        all_docs = self._get_all_documents(tenant_id=tenant_id)
         if not all_docs:
             return {"documents": [], "from_cache": False}
         logger.info(f"获取知识库文档完成: {len(all_docs)}个文档")
@@ -59,10 +56,9 @@ class RAGChainV2:
             "documents": hybrid_results,
             "from_cache": False
         }
-    def retrieve_with_quality(self, question: str, top_k: int = 5) -> Dict:
+    def retrieve_with_quality(self, question: str, top_k: int = 5, tenant_id: str = "default") -> Dict:
         """高质量检索：多路召回 + 重排序"""
         
-        # 1. 检查缓存
         cached = cache_manager.get_search_results(question, top_k)
         if cached:
             logger.info("使用缓存的检索结果")
@@ -71,8 +67,7 @@ class RAGChainV2:
                 "from_cache": True
             }
         
-        # 2. 获取所有文档（从知识库）
-        all_docs = self._get_all_documents()
+        all_docs = self._get_all_documents(tenant_id=tenant_id)
         if not all_docs:
             return {"documents": [], "from_cache": False}
         logger.info(f"获取知识库文档完成: {len(all_docs)}个文档")
@@ -99,14 +94,20 @@ class RAGChainV2:
             "from_cache": False
         }
     
-    def _get_all_documents(self) -> List[Dict]:
-        """获取知识库中的所有文档"""
+    def _get_all_documents(self, tenant_id: str = "default") -> List[Dict]:
+        """获取指定租户的所有文档（含 default 共享）"""
         
         try:
-            # 从ChromaDB获取所有文档
-            result = vector_store.collection.get(
-                include=["documents", "metadatas"]
-            )
+            if tenant_id != "default":
+                result = vector_store.collection.get(
+                    where={"$or": [{"tenant_id": tenant_id}, {"tenant_id": "default"}]},
+                    include=["documents", "metadatas"]
+                )
+            else:
+                result = vector_store.collection.get(
+                    where={"tenant_id": tenant_id},
+                    include=["documents", "metadatas"]
+                )
             
             if not result or not result.get("ids"):
                 return []
@@ -126,34 +127,28 @@ class RAGChainV2:
             logger.error(f"获取文档失败: {str(e)}")
             return []
     
-    def ask_with_hyde(self, question: str, top_k: int = 3) -> Dict:
-        """使用HyDE的RAG问答"""
+    def ask_with_hyde(self, question: str, top_k: int = 3, tenant_id: str = "default") -> Dict:
+        """使用HyDE的RAG问答（带租户隔离）"""
         
-        # 1. 检查缓存
-        cached = cache_manager.get_search_results(f"hyde:{question}", top_k)
+        cached = cache_manager.get_search_results(f"hyde:{tenant_id}:{question}", top_k)
         if cached:
             logger.info("HyDE使用缓存的检索结果")
             documents = cached
             from_cache = True
         else:
-            # 2. 使用HyDE生成增强查询向量
             enhanced_query_vector = hyde.hybrid_query_embedding(question)
             
-            # 3. 使用增强向量直接检索
-            hyde_results = vector_store.search_by_vector(enhanced_query_vector, top_k=top_k)
+            hyde_results = vector_store.search_by_vector(enhanced_query_vector, top_k=top_k, tenant_id=tenant_id)
             
             if not hyde_results:
-                # 回退到普通混合检索
-                retrieval_result = self.retrieve_with_quality(question, top_k)
+                retrieval_result = self.retrieve_with_quality(question, top_k, tenant_id=tenant_id)
                 documents = retrieval_result["documents"]
             else:
-                # 对HyDE结果进行重排序
                 documents = reranker.rerank_with_cross_encoder(question, hyde_results)
                 documents = documents[:top_k]
             
-            # 4. 缓存结果
             if documents:
-                cache_manager.set_search_results(f"hyde:{question}", top_k, documents)
+                cache_manager.set_search_results(f"hyde:{tenant_id}:{question}", top_k, documents)
             from_cache = False
         
         if not documents:

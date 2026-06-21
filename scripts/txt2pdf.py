@@ -7,12 +7,16 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
 FONT_CN = 'STSong-Light'
 
+import os
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "tests", "data")
+
 # 读取文本
-with open("test.txt", "r", encoding="utf-8") as f:
+with open(os.path.join(DATA_DIR, "test.txt"), "r", encoding="utf-8") as f:
     content = f.read()
 
 # 生成PDF
-c = canvas.Canvas("test.pdf", pagesize=A4)
+c = canvas.Canvas(os.path.join(DATA_DIR, "test.pdf"), pagesize=A4)
 c.setFont(FONT_CN, 12)
 x, y = 40, 820
 line_height = 22

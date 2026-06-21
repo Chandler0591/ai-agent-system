@@ -2,6 +2,13 @@ import json
 from datetime import datetime
 from app.logger import logger
 
+# 租户上下文（agent_unified 在每次请求时设置）
+_current_tenant = "default"
+
+def set_tenant(tenant_id: str):
+    global _current_tenant
+    _current_tenant = tenant_id
+
 class Tools:
     """工具集 - 所有工具都定义为静态方法"""
     
@@ -45,6 +52,29 @@ class Tools:
             "time": now.strftime("%Y-%m-%d %H:%M:%S"),
             "timestamp": now.timestamp()
         }, ensure_ascii=False)
+
+    @staticmethod
+    def search_knowledge_base(query: str) -> str:
+        """搜索知识库"""
+        from app.knowledge_base import knowledge_base
+        
+        try:
+            results = knowledge_base.search(query, top_k=3, tenant_id=_current_tenant)
+            if not results:
+                return json.dumps({"results": [], "message": "未找到相关内容"})
+            
+            formatted = []
+            for r in results:
+                formatted.append({
+                    "content": r["text"][:500],
+                    "source": r["metadata"].get("source", "未知"),
+                    "score": r["score"]
+                })
+            
+            return json.dumps({"results": formatted, "count": len(formatted)}, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"知识库搜索失败: {e}")
+            return json.dumps({"error": str(e)})
     
     @staticmethod
     def query_database(sql: str) -> str:
@@ -70,6 +100,7 @@ TOOLS_MAP = {
     "get_weather": Tools.get_weather,
     "calculator": Tools.calculator,
     "get_time": Tools.get_time,
+    "search_knowledge_base": Tools.search_knowledge_base,
     "query_database": Tools.query_database,
     "search_documents": Tools.search_documents
 }
@@ -85,6 +116,9 @@ def calculator(expression: str) -> str:
 
 def get_time() -> str:
     return Tools.get_time()
+
+def search_knowledge_base(query: str) -> str:
+    return Tools.search_knowledge_base(query)
 
 def query_database(sql: str) -> str:
     return Tools.query_database(sql)

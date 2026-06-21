@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 import redis
 from app.logger import logger
+from app.config import config
 
 class CacheManager:
     """缓存管理器 - 使用Redis"""
@@ -103,4 +104,4 @@ class CacheManager:
         logger.info("缓存已清空")
 
 # 全局实例
-cache_manager = CacheManager()
+cache_manager = CacheManager(config.REDIS_URL)
