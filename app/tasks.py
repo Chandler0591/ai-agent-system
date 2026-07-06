@@ -71,10 +71,41 @@ def cleanup_temp_files(temp_dir: str = "/app/tmp", max_age_hours: int = 24):
         logger.warning(f"[Celery] 临时文件清理失败: {e}")
 
 
+@celery_app.task(name="scan_incoming")
+def scan_incoming_dir(incoming_dir: str = "/app/data/incoming"):
+    """定时扫描待处理目录，自动入库新文件"""
+    from app.knowledge_base import knowledge_base
+    from app.notifier import notify
+    processed = 0
+    try:
+        if not os.path.isdir(incoming_dir):
+            return
+        for fname in os.listdir(incoming_dir):
+            fpath = os.path.join(incoming_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+            try:
+                result = knowledge_base.add_pdf(fpath, fname, skip_duplicate=True)
+                if result.get("status") == "success":
+                    os.unlink(fpath)  # 处理后删除
+                    processed += 1
+                    notify("新文档入库", f"{fname} 已自动解析入库，共 {result.get('chunks', 0)} 个分块")
+            except Exception as e:
+                logger.warning(f"[Celery] 自动入库失败: {fname}: {e}")
+        if processed > 0:
+            logger.info(f"[Celery] 定时扫描入库: {processed} 个文件")
+    except Exception as e:
+        logger.error(f"[Celery] 定时扫描失败: {e}")
+
+
 # 定时任务配置（Celery Beat 调度）
 celery_app.conf.beat_schedule = {
     "cleanup-every-6h": {
         "task": "cleanup_temp_files",
         "schedule": 21600.0,  # 6 小时
+    },
+    "scan-incoming-5m": {
+        "task": "scan_incoming",
+        "schedule": 300.0,  # 5 分钟
     },
 }

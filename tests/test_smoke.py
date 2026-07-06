@@ -35,6 +35,22 @@ RESET = '\033[0m'
 passed = 0
 failed = 0
 
+# ---- 认证辅助 ----
+_auth_token = None
+def get_token():
+    """获取 admin 用户的 JWT token"""
+    global _auth_token
+    if _auth_token:
+        return _auth_token
+    resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+    if resp.status_code == 200:
+        _auth_token = resp.json()["access_token"]
+    return _auth_token
+
+def auth_headers():
+    token = get_token()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 def test(name, fn):
     global passed, failed
     print(f"\n{CYAN}{'='*60}{RESET}")
@@ -91,7 +107,7 @@ def test_kb_upload():
 
     with open(pdf_path, "rb") as f:
         files = {"file": (os.path.basename(pdf_path), f, "application/pdf")}
-        resp = requests.post(f"{BASE_URL}/api/rag/upload?force=true", files=files)
+        resp = requests.post(f"{BASE_URL}/api/rag/upload?force=true", files=files, headers=auth_headers())
     assert resp.status_code in (200, 409), f"上传失败: {resp.status_code}"
     data = resp.json()
     print(f"  文件: {data['file']}, 任务ID: {data['task_id'][:8]}...")
@@ -117,7 +133,7 @@ def test_kb_upload():
 
 def test_kb_search():
     """知识库搜索"""
-    resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": "Docker", "top_k": 3})
+    resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": "Docker", "top_k": 3}, headers=auth_headers())
     assert resp.status_code == 200
     data = resp.json()
     print(f"  查询: {data['query']}, 结果数: {data['total']}")
@@ -128,7 +144,7 @@ def test_agent_rag():
     """Agent 知识库问答"""
     resp = requests.post(f"{BASE_URL}/api/agent/run", json={
         "message": "什么是Docker？"
-    }, timeout=120)
+    }, headers=auth_headers(), timeout=120)
     assert resp.status_code == 200, f"请求失败: {resp.status_code}"
     data = resp.json()
     print(f"  意图: {data['intent']}, 回答: {data['reply'][:80]}...")
@@ -139,7 +155,7 @@ def test_agent_tool():
     """Agent 工具调用"""
     resp = requests.post(f"{BASE_URL}/api/agent/run", json={
         "message": "北京今天天气怎么样？"
-    }, timeout=120)
+    }, headers=auth_headers(), timeout=120)
     assert resp.status_code == 200
     data = resp.json()
     print(f"  意图: {data['intent']}, 使用工具: {data['used_tool']}")
@@ -151,7 +167,7 @@ def test_agent_chat():
     """Agent 普通对话"""
     resp = requests.post(f"{BASE_URL}/api/agent/run", json={
         "message": "你好，1+1等于几？"
-    }, timeout=120)
+    }, headers=auth_headers(), timeout=120)
     assert resp.status_code == 200
     data = resp.json()
     print(f"  意图: {data['intent']}, 回答: {data['reply'][:80]}...")
@@ -165,14 +181,14 @@ def test_multiturn():
     # 第1轮
     r1 = requests.post(f"{BASE_URL}/api/agent/run", json={
         "message": "我叫张三", "session_id": session_id
-    }, timeout=120)
+    }, headers=auth_headers(), timeout=120)
     assert r1.status_code == 200
     print(f"  第1轮: {r1.json()['reply'][:60]}...")
 
     # 第2轮（需要记住上一轮）
     r2 = requests.post(f"{BASE_URL}/api/agent/run", json={
         "message": "我叫什么名字？", "session_id": session_id
-    }, timeout=120)
+    }, headers=auth_headers(), timeout=120)
     assert r2.status_code == 200
     reply2 = r2.json()["reply"]
     print(f"  第2轮: {reply2[:60]}...")
@@ -323,7 +339,7 @@ def test_upload_duplicate():
 
     with open(pdf_path, "rb") as f:
         files = {"file": (os.path.basename(pdf_path), f, "application/pdf")}
-        resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files)
+        resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, headers=auth_headers())
     # 重复上传应该返回 409 (Conflict)
     if resp.status_code == 409:
         print(f"  正确返回 409: 文件已存在")
@@ -401,6 +417,45 @@ def test_tenant_isolation():
         return True
 
 
+def test_desensitize():
+    """脱敏引擎"""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ''))
+    from app.desensitizer import desensitizer
+    desensitizer.reload_rules()
+    raw = "张三 13812345678 身份证350102199001011234 ¥50000.00 user@test.com"
+    masked = desensitizer.mask(raw)
+    ok = "13812345678" not in masked and "350102199001011234" not in masked
+    print(f"  原文: {raw}")
+    print(f"  脱敏: {masked}")
+    return ok
+
+
+def test_export_docx():
+    """Word 导出"""
+    resp = requests.post(
+        f"{BASE_URL}/api/export",
+        data={"format": "docx", "text": "# 测试\n\n- 项目1\n- 项目2"},
+        headers=auth_headers(),
+    )
+    ok = resp.status_code == 200 and resp.headers.get("content-disposition", "").endswith(".docx")
+    print(f"  {'✅' if ok else '❌'} 状态: {resp.status_code}, Content-Type: {resp.headers.get('content-type','?')}")
+    return ok
+
+
+def test_export_xlsx():
+    """Excel 导出"""
+    resp = requests.post(
+        f"{BASE_URL}/api/export",
+        data={"format": "xlsx", "text": "| A | B |\n|---|---|\n| 1 | 2 |"},
+        headers=auth_headers(),
+    )
+    # 检查状态码 200 且非 JSON（说明返回了二进制数据）
+    ok = resp.status_code == 200 and "json" not in resp.headers.get("content-type", "")
+    print(f"  {'✅' if ok else '❌'} 状态: {resp.status_code}")
+    return ok
+
+
 # ========== 主流程 ==========
 if __name__ == "__main__":
     print(f"\n{CYAN}{'='*60}{RESET}")
@@ -434,6 +489,9 @@ if __name__ == "__main__":
     test("RAGAS 评估", test_rag_evaluate)
     test("重复上传防护", test_upload_duplicate)
     test("租户隔离", test_tenant_isolation)
+    test("脱敏引擎", test_desensitize)
+    test("Word 导出", test_export_docx)
+    test("Excel 导出", test_export_xlsx)
 
     # 汇总
     print(f"\n{CYAN}{'='*60}{RESET}")

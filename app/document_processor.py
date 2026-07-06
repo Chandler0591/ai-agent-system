@@ -1,5 +1,6 @@
 import hashlib
 import re
+import os
 from typing import List, Dict, Optional
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -67,10 +68,113 @@ class DocumentProcessor:
         logger.info(f"文本切分完成: 原始{len(text)}字符 -> {len(chunks)}段")
         return chunks
     
+    # ---- 多格式文本提取 ----
+    def extract_text(self, file_path: str) -> str:
+        """自动识别文件类型，提取纯文本"""
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.pdf':
+            text, _ = self.extract_text_from_pdf(file_path)
+            return text
+        elif ext == '.docx':
+            return self._extract_docx(file_path)
+        elif ext == '.xlsx':
+            return self._extract_xlsx(file_path)
+        elif ext == '.pptx':
+            return self._extract_pptx(file_path)
+        elif ext in ('.png', '.jpg', '.jpeg', '.bmp', '.tiff'):
+            return self._extract_image_ocr(file_path)
+        elif ext in ('.txt', '.md', '.csv', '.log'):
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        else:
+            raise ValueError(f"不支持的文件格式: {ext}")
+
+    def _extract_docx(self, file_path: str) -> str:
+        """提取 docx 文档文本"""
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            parts = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    parts.append(para.text)
+            # 表格
+            for table in doc.tables:
+                parts.append("\n--- TABLE ---")
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    parts.append(" | ".join(cells))
+            text = "\n".join(parts)
+            logger.info(f"DOCX 解析完成: {len(doc.paragraphs)}段, {len(doc.tables)}表, {len(text)}字符")
+            return text
+        except Exception as e:
+            raise ValueError(f"DOCX 解析失败: {e}")
+
+    def _extract_xlsx(self, file_path: str) -> str:
+        """提取 xlsx 表格数据"""
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(file_path, data_only=True)
+            parts = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                parts.append(f"\n### Sheet: {sheet_name}")
+                for row in ws.iter_rows(values_only=True):
+                    row_vals = [str(c) if c is not None else "" for c in row]
+                    if any(row_vals):
+                        parts.append(" | ".join(row_vals))
+            text = "\n".join(parts)
+            logger.info(f"XLSX 解析完成: {len(wb.sheetnames)}工作表, {len(text)}字符")
+            return text
+        except Exception as e:
+            raise ValueError(f"XLSX 解析失败: {e}")
+
+    def _extract_pptx(self, file_path: str) -> str:
+        """提取 pptx 演示文稿文本"""
+        try:
+            from pptx import Presentation
+            prs = Presentation(file_path)
+            parts = []
+            for i, slide in enumerate(prs.slides, 1):
+                slide_text = []
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        for para in shape.text_frame.paragraphs:
+                            if para.text.strip():
+                                slide_text.append(para.text)
+                if slide_text:
+                    parts.append(f"\n### Slide {i}\n" + "\n".join(slide_text))
+            text = "\n".join(parts)
+            logger.info(f"PPTX 解析完成: {len(prs.slides)}页, {len(text)}字符")
+            return text
+        except Exception as e:
+            raise ValueError(f"PPTX 解析失败: {e}")
+
+    def _extract_image_ocr(self, file_path: str) -> str:
+        """图片 OCR 提取文本"""
+        try:
+            from PIL import Image
+            import pytesseract
+            img = Image.open(file_path)
+            text = pytesseract.image_to_string(img, lang='chi_sim+eng')
+            logger.info(f"图片 OCR 完成: {len(text)}字符")
+            return text or f"[图片OCR无文本: {os.path.basename(file_path)}]"
+        except ImportError:
+            logger.warning("pytesseract/PIL 未安装，跳过图片OCR")
+            return f"[图片: {os.path.basename(file_path)}]"
+        except Exception as e:
+            logger.error(f"图片 OCR 失败: {e}")
+            return f"[图片OCR失败: {os.path.basename(file_path)}]"
+    
     def process_pdf(self, pdf_path: str, source_name: str = None) -> tuple:
-        """处理PDF文件，返回(文档列表, 统计信息)"""
-        # 1. 提取文本
-        text, page_count = self.extract_text_from_pdf(pdf_path)
+        """处理文件，返回(文档列表, 统计信息)"""
+        # 1. 自动识别格式提取文本
+        ext = os.path.splitext(pdf_path)[1].lower()
+        if ext == '.pdf':
+            text, page_count = self.extract_text_from_pdf(pdf_path)
+        else:
+            text = self.extract_text(pdf_path)
+            page_count = 1
         
         if not text.strip():
             raise ValueError("PDF文件没有提取到文本内容")

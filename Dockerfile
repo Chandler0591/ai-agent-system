@@ -23,8 +23,6 @@ RUN apt-get update && apt-get install -y \
 
 # 复制依赖文件
 COPY requirements.txt .
-# 先装 CPU 版 PyTorch（避免拉 nvidia 423MB CUDA 包）
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
@@ -35,7 +33,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # 创建数据目录
-RUN mkdir -p /app/chroma_data /app/tmp
+RUN mkdir -p /app/chroma_data /app/tmp /app/data/incoming
 
 # 暴露端口
 EXPOSE 8000

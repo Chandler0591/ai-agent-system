@@ -177,6 +177,43 @@ class DatabaseManager:
         );
         CREATE INDEX IF NOT EXISTS idx_user_tenants_user ON user_tenants(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_tenants_tenant ON user_tenants(tenant_id);
+
+        CREATE TABLE IF NOT EXISTS desensitize_rules (
+            id              SERIAL PRIMARY KEY,
+            pattern_name    VARCHAR(64) UNIQUE NOT NULL,
+            regex           VARCHAR(512) NOT NULL,
+            description     VARCHAR(256),
+            is_active       BOOLEAN DEFAULT TRUE,
+            created_at      TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id              SERIAL PRIMARY KEY,
+            tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default',
+            username        VARCHAR(64) DEFAULT 'anonymous',
+            action          VARCHAR(128) NOT NULL,
+            detail          TEXT DEFAULT '',
+            ip_address      VARCHAR(45) DEFAULT '',
+            created_at      TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+
+        -- 给租户表加脱敏开关（幂等）
+        ALTER TABLE tenants ADD COLUMN IF NOT EXISTS desensitize BOOLEAN DEFAULT TRUE;
+
+        CREATE TABLE IF NOT EXISTS bookmarks (
+            id              SERIAL PRIMARY KEY,
+            session_id      VARCHAR(64) NOT NULL,
+            tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default',
+            username        VARCHAR(64) DEFAULT 'anonymous',
+            question        TEXT NOT NULL DEFAULT '',
+            answer          TEXT NOT NULL DEFAULT '',
+            tag             VARCHAR(128) DEFAULT '',
+            created_at      TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bookmarks_tenant ON bookmarks(tenant_id);
+        CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(username);
         """
         with self._get_conn() as conn:
             with conn.cursor() as cur:
@@ -520,6 +557,174 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取用户租户失败: {e}")
             return []
+
+    # ---- 脱敏规则管理 ----
+    def get_desensitize_rules(self, active_only: bool = True) -> List[Dict]:
+        """获取脱敏规则列表"""
+        if not self.available:
+            return self._default_desensitize_rules()
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    sql = "SELECT pattern_name, regex, description FROM desensitize_rules"
+                    if active_only:
+                        sql += " WHERE is_active = TRUE"
+                    sql += " ORDER BY id"
+                    cur.execute(sql)
+                    return [{"name": r[0], "regex": r[1], "desc": r[2]} for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"获取脱敏规则失败: {e}")
+            return self._default_desensitize_rules()
+
+    @staticmethod
+    def _default_desensitize_rules() -> List[Dict]:
+        """内置默认脱敏规则（PG 不可用时的 fallback）"""
+        return [
+            {"name": "phone", "regex": r'1[3-9]\d{9}', "desc": "手机号"},
+            {"name": "id_card", "regex": r'\d{17}[\dXx]', "desc": "身份证"},
+            {"name": "email", "regex": r'[\w.-]+@[\w.-]+\.\w+', "desc": "邮箱"},
+            {"name": "amount", "regex": r'(¥|￥|CNY|USD)\s*\d+[\d,]*\.?\d*', "desc": "金额"},
+            {"name": "bank_card", "regex": r'\d{16,19}', "desc": "银行卡号"},
+        ]
+
+    def is_desensitize_enabled(self, tenant_id: str) -> bool:
+        """查询租户是否开启脱敏"""
+        if not self.available:
+            return True
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT desensitize FROM tenants WHERE tenant_id = %s", (tenant_id,))
+                    row = cur.fetchone()
+                    return row[0] if row else True
+        except Exception:
+            return True
+
+    # ---- 审计日志 ----
+    def add_audit_log(self, tenant_id: str, username: str, action: str, detail: str = "", ip_address: str = ""):
+        """写入审计日志"""
+        if not self.available:
+            return
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO audit_logs (tenant_id, username, action, detail, ip_address)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (tenant_id, username, action, detail[:500], ip_address)
+                    )
+        except Exception as e:
+            logger.error(f"审计日志写入失败: {e}")
+
+    def get_audit_logs(self, tenant_id: str = None, limit: int = 100) -> List[Dict]:
+        """查询审计日志"""
+        if not self.available:
+            return []
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    if tenant_id:
+                        cur.execute(
+                            "SELECT tenant_id, username, action, detail, ip_address, created_at FROM audit_logs WHERE tenant_id = %s ORDER BY created_at DESC LIMIT %s",
+                            (tenant_id, limit)
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT tenant_id, username, action, detail, ip_address, created_at FROM audit_logs ORDER BY created_at DESC LIMIT %s",
+                            (limit,)
+                        )
+                    return [{"tenant_id": r[0], "username": r[1], "action": r[2], "detail": r[3], "ip": r[4], "time": str(r[5])} for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"查询审计日志失败: {e}")
+            return []
+
+    # ---- 收藏管理 ----
+    def add_bookmark(self, session_id: str, question: str, answer: str,
+                     tenant_id: str = "default", username: str = "anonymous",
+                     tag: str = "") -> Optional[int]:
+        """添加收藏（自动去重），返回 bookmark id，重复返回 None"""
+        if not self.available:
+            return None
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    # 检查重复（同 session + 同 answer 开头）
+                    cur.execute(
+                        "SELECT id FROM bookmarks WHERE session_id=%s AND answer=%s",
+                        (session_id, answer[:500])
+                    )
+                    if cur.fetchone():
+                        return None  # 已存在
+                    cur.execute(
+                        """INSERT INTO bookmarks (session_id, tenant_id, username, question, answer, tag)
+                           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (session_id, tenant_id, username, question[:500], answer[:5000], tag)
+                    )
+                    row = cur.fetchone()
+                    return row[0] if row else None
+        except Exception as e:
+            logger.error(f"添加收藏失败: {e}")
+            return None
+
+    def remove_bookmark_by_answer(self, session_id: str, answer: str) -> bool:
+        """按内容删除收藏"""
+        if not self.available:
+            return False
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM bookmarks WHERE session_id=%s AND answer=%s",
+                        (session_id, answer[:500])
+                    )
+                    return cur.rowcount > 0
+        except Exception as e:
+            logger.error(f"删除收藏失败: {e}")
+            return False
+
+    def get_bookmarks(self, tenant_id: str = None, username: str = None,
+                      limit: int = 100) -> List[Dict]:
+        """查询收藏列表"""
+        if not self.available:
+            return []
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    conditions = []
+                    params = []
+                    if tenant_id:
+                        conditions.append("tenant_id = %s")
+                        params.append(tenant_id)
+                    if username:
+                        conditions.append("username = %s")
+                        params.append(username)
+                    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+                    cur.execute(
+                        f"SELECT id, session_id, question, answer, tag, created_at "
+                        f"FROM bookmarks {where} ORDER BY created_at DESC LIMIT %s",
+                        params + [limit]
+                    )
+                    return [
+                        {"id": r[0], "session_id": r[1], "question": r[2],
+                         "answer": r[3], "tag": r[4], "created_at": str(r[5])}
+                        for r in cur.fetchall()
+                    ]
+        except Exception as e:
+            logger.error(f"查询收藏失败: {e}")
+            return []
+
+    def delete_bookmark(self, bookmark_id: int) -> bool:
+        """删除收藏"""
+        if not self.available:
+            return False
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM bookmarks WHERE id = %s", (bookmark_id,))
+                    return cur.rowcount > 0
+        except Exception as e:
+            logger.error(f"删除收藏失败: {e}")
+            return False
 
     def close(self):
         """关闭连接池"""

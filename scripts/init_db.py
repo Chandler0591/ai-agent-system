@@ -118,5 +118,26 @@ if __name__ == "__main__":
                 database_manager.add_user_to_tenant("demo1", "demo1", "user")
                 database_manager.add_user_to_tenant("demo2", "demo2", "user")
                 print("✅ 用户: admin(admin123, default/admin), demo1(demo1123, demo1), demo2(demo2123, demo2)")
+
+                # 种子脱敏规则
+                try:
+                    with database_manager._get_conn() as conn:
+                        with conn.cursor() as cur:
+                            for rule in [
+                                ("phone", r'1[3-9]\d{9}', "手机号"),
+                                ("id_card", r'\d{17}[\dXx]', "身份证"),
+                                ("email", r'[\w.-]+@[\w.-]+\.\w+', "邮箱"),
+                                ("amount", r'(¥|￥|CNY|USD)\s*\d+[\d,]*\.?\d*', "金额"),
+                                ("bank_card", r'\d{16,19}', "银行卡号"),
+                            ]:
+                                cur.execute(
+                                    """INSERT INTO desensitize_rules (pattern_name, regex, description)
+                                       VALUES (%s, %s, %s)
+                                       ON CONFLICT (pattern_name) DO UPDATE SET regex = EXCLUDED.regex""",
+                                    rule
+                                )
+                    print("✅ 脱敏规则: phone, id_card, email, amount, bank_card")
+                except Exception as e:
+                    print(f"⚠️  脱敏规则写入跳过: {e}")
         except Exception as e:
             print(f"⚠️  种子数据写入跳过: {e}")

@@ -6,6 +6,9 @@ import streamlit as st
 import requests
 import json
 import time
+import base64
+from io import BytesIO
+from PIL import Image
 
 import os
 
@@ -27,6 +30,50 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "session_id" not in st.session_state:
     st.session_state.session_id = f"st-{int(time.time())}"
+if "pending_image" not in st.session_state:
+    st.session_state.pending_image = None  # base64 图片数据
+if "pending_image_preview" not in st.session_state:
+    st.session_state.pending_image_preview = None  # 用于显示的预览
+
+
+@st.cache_data(ttl=3600)
+def export_docx(text: str) -> bytes:
+    """Markdown → Word（缓存避免闪烁）"""
+    try:
+        from docx import Document
+        import io
+        doc = Document()
+        for line in text.split('\n'):
+            if line.startswith('# '): doc.add_heading(line[2:], level=1)
+            elif line.startswith('## '): doc.add_heading(line[3:], level=2)
+            elif line.startswith('- '): doc.add_paragraph(line[2:], style='List Bullet')
+            elif line.strip(): doc.add_paragraph(line)
+        buf = io.BytesIO()
+        doc.save(buf); buf.seek(0)
+        return buf.read()
+    except Exception:
+        return text.encode('utf-8')
+
+
+@st.cache_data(ttl=3600)
+def export_xlsx(text: str) -> bytes:
+    """Markdown 表格 → Excel（缓存避免闪烁）"""
+    try:
+        from openpyxl import Workbook
+        import io
+        wb = Workbook(); ws = wb.active
+        row_num = 1
+        for line in text.split('\n'):
+            if '|' in line and not '---' in line:
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+                for j, c in enumerate(cells):
+                    ws.cell(row=row_num, column=j+1, value=c)
+                row_num += 1
+        buf = io.BytesIO()
+        wb.save(buf); buf.seek(0)
+        return buf.read()
+    except Exception:
+        return text.encode('utf-8')
 
 
 # ========== 侧边栏 ==========
@@ -80,9 +127,29 @@ with st.sidebar:
             except Exception:
                 pass
             st.session_state.token = None
+            st.session_state.chat_history = []; st.session_state.scene = "balanced"
             st.rerun()
 
     st.divider()
+
+    # 收藏复用——显示问题编辑区
+    if st.session_state.get("_reuse_question") and not st.session_state.get("_reuse_shown"):
+        st.session_state._reuse_shown = True
+        st.info(f"📋 已填入收藏的问题，编辑后发送：")
+        reuse_prompt = st.text_input("编辑问题", value=st.session_state._reuse_question, key="reuse_input")
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            if st.button("🚀 发送", type="primary", key="send_reuse"):
+                st.session_state._auto_send = reuse_prompt
+                st.session_state._reuse_question = None
+                st.session_state._reuse_shown = False
+                st.rerun()
+        with c2:
+            if st.button("取消", key="cancel_reuse"):
+                st.session_state._reuse_question = None
+                st.session_state._reuse_shown = False
+                st.rerun()
+        st.stop()
 
     # 功能选择
     mode = st.radio(
@@ -140,6 +207,7 @@ with st.sidebar:
     except Exception:
         pass
 
+
 # ========== 主界面 ==========
 st.title("AI Agent 企业级助手")
 
@@ -147,69 +215,131 @@ st.title("AI Agent 企业级助手")
 if mode == "💬 对话":
     st.caption("与 AI Agent 自由对话，支持工具调用和知识库检索")
 
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+    # 场景选择
+    scene_labels = {"precise": "🎯 精准", "balanced": "⚖️ 平衡", "creative": "🎨 创意"}
+    if "scene" not in st.session_state:
+        st.session_state.scene = "balanced"
+    selected_scene_label = st.radio(
+        "回答风格", list(scene_labels.values()),
+        index=list(scene_labels.keys()).index(st.session_state.scene),
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    st.session_state.scene = {v: k for k, v in scene_labels.items()}[selected_scene_label]
 
-    if prompt := st.chat_input("输入消息..."):
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
+    # 图片上传区域
+    with st.expander("🖼️ 上传图片（可选）", expanded=bool(st.session_state.pending_image_preview)):
+        uploaded_image = st.file_uploader(
+            "选择图片进行分析", type=["jpg", "jpeg", "png", "webp", "gif"],
+            label_visibility="collapsed",
+            key="image_uploader"
+        )
+        if uploaded_image:
+            # 读取并编码为 base64
+            img_bytes = uploaded_image.read()
+            img = Image.open(BytesIO(img_bytes))
+            # 生成预览
+            buf = BytesIO()
+            img.thumbnail((300, 300))
+            img.save(buf, format="PNG")
+            st.image(buf, caption="已选择图片", use_column_width=True)
+            # 存 base64
+            st.session_state.pending_image = base64.b64encode(img_bytes).decode()
+            st.session_state.pending_image_preview = buf.getvalue()
+            if st.button("✕ 移除图片"):
+                st.session_state.pending_image = None
+                st.session_state.pending_image_preview = None
+                st.rerun()
 
-        with st.chat_message("user"):
-            st.write(prompt)
+    if st.session_state.token:
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                if msg.get("image"):
+                    st.image(msg["image"], width=200)
+                st.write(msg["content"])
+                # 工具按钮（历史消息）
+                if msg["role"] == "assistant" and msg["content"]:
+                    idx = st.session_state.chat_history.index(msg)
+                    c1, c2 = st.columns([0.5, 0.5], gap="small")
+                    with c1:
+                        st.download_button("📄 Word", data=export_docx(msg["content"]),
+                            file_name="answer.docx", key=f"h_docx_{idx}",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    if '|' in msg["content"] and '---' in msg["content"]:
+                        with c2:
+                            st.download_button("📊 Excel", data=export_xlsx(msg["content"]),
+                                file_name="data.xlsx", key=f"h_xlsx_{idx}",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            full_text = ""
-            sources = []
+        if prompt := st.chat_input("输入消息..."):
+            if not st.session_state.token:
+                st.warning("请先在左侧登录后再发送消息")
+                st.stop()
+            image_data = st.session_state.pending_image
+            st.session_state.chat_history.append({
+                "role": "user", "content": prompt,
+                "image": st.session_state.pending_image_preview
+            })
+            with st.chat_message("user"):
+                if image_data and st.session_state.pending_image_preview:
+                    st.image(st.session_state.pending_image_preview, width=200)
+                st.write(prompt)
+            st.session_state.pending_image = None
+            st.session_state.pending_image_preview = None
 
-            try:
-                headers = {"Content-Type": "application/json"}
-                if st.session_state.token:
-                    headers["Authorization"] = f"Bearer {st.session_state.token}"
+            with st.chat_message("assistant"):
+                placeholder = st.empty()
+                full_text = ""
+                sources = []
+                try:
+                    headers = {"Content-Type": "application/json"}
+                    if st.session_state.token:
+                        headers["Authorization"] = f"Bearer {st.session_state.token}"
+                    resp = requests.post(
+                        f"{BASE_URL}/api/agent/stream",
+                        json={"message": prompt, "session_id": st.session_state.session_id,
+                              "mode": "auto", "image": image_data,
+                              "scene": st.session_state.get("scene", "balanced")},
+                        headers=headers, stream=True, timeout=120)
+                    for line in resp.iter_lines():
+                        if line and line.startswith(b"data: "):
+                            try:
+                                event = json.loads(line[6:])
+                                if event["type"] == "token":
+                                    full_text += event["data"]
+                                    placeholder.markdown(full_text + "▌")
+                                elif event["type"] == "info":
+                                    placeholder.info(event["data"])
+                                elif event["type"] == "sources":
+                                    sources = event.get("data", [])
+                            except json.JSONDecodeError:
+                                pass
+                    placeholder.markdown(full_text)
+                    if sources:
+                        with st.expander("📚 参考来源"):
+                            for s in sources:
+                                st.caption(f"📖 [{s.get('relevance', '')}] {s.get('source', '未知')}")
+                    st.session_state.chat_history.append({"role": "assistant", "content": full_text})
+                    # 导出按钮
+                    cw1, cw2 = st.columns([0.5, 0.5], gap="small")
+                    with cw1:
+                        st.download_button("📄 Word", data=export_docx(full_text),
+                            file_name="answer.docx", key=f"docx_{int(time.time())}",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    if '|' in full_text and '---' in full_text:
+                        with cw2:
+                            st.download_button("📊 Excel", data=export_xlsx(full_text),
+                                file_name="data.xlsx", key=f"xlsx_{int(time.time())}",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                except Exception as e:
+                    st.error(f"请求失败: {e}")
 
-                resp = requests.post(
-                    f"{BASE_URL}/api/agent/stream",
-                    json={
-                        "message": prompt,
-                        "session_id": st.session_state.session_id,
-                        "mode": "auto",
-                    },
-                    headers=headers,
-                    stream=True,
-                    timeout=120,
-                )
-
-                for line in resp.iter_lines():
-                    if line and line.startswith(b"data: "):
-                        try:
-                            event = json.loads(line[6:])
-                            if event["type"] == "token":
-                                full_text += event["data"]
-                                placeholder.markdown(full_text + "▌")
-                            elif event["type"] == "info":
-                                placeholder.info(event["data"])
-                            elif event["type"] == "sources":
-                                sources = event.get("data", [])
-                        except json.JSONDecodeError:
-                            pass
-
-                placeholder.markdown(full_text)
-                if sources:
-                    with st.expander("📚 参考来源"):
-                        for s in sources:
-                            st.caption(f"📖 [{s.get('relevance', '')}] {s.get('source', '未知')} (score: {s.get('score', 0):.2f})")
-                            st.text(s.get("text", "")[:300])
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": full_text}
-                )
-
-            except Exception as e:
-                st.error(f"请求失败: {e}")
-
-    if st.button("清空对话"):
-        st.session_state.chat_history = []
-        st.session_state.session_id = f"st-{int(time.time())}"
-        st.rerun()
+        if st.button("🗑️ 清空对话", help="清空当前对话记录（不影响知识库）"):
+            st.session_state.chat_history = []
+            st.session_state.session_id = f"st-{int(time.time())}"
+            st.rerun()
+    else:
+        st.info("👈 请先在左侧登录后开始对话")
 
 # ========== 知识库查询 ==========
 elif mode == "📄 知识库查询":
@@ -222,20 +352,24 @@ elif mode == "📄 知识库查询":
         top_k = st.number_input("结果数", 1, 10, 3)
 
     if query and st.button("搜索"):
-        try:
-            resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": query, "top_k": top_k})
-            if resp.ok:
-                results = resp.json()["results"]
-                for i, r in enumerate(results):
-                    with st.expander(
-                        f"{i+1}. [{r['relevance']}] {r['metadata'].get('source', '未知')} "
-                        f"(分数: {r['score']:.2f})"
-                    ):
-                        st.markdown(r["text"])
-            else:
-                st.error(f"搜索失败: {resp.status_code}")
-        except Exception as e:
-            st.error(f"API 不可达: {e}")
+        if not st.session_state.token:
+            st.warning("请先在左侧登录后使用知识库查询")
+        else:
+            try:
+                headers = {"Authorization": f"Bearer {st.session_state.token}"}
+                resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": query, "top_k": top_k}, headers=headers)
+                if resp.ok:
+                    results = resp.json()["results"]
+                    for i, r in enumerate(results):
+                        with st.expander(
+                            f"{i+1}. [{r['relevance']}] {r['metadata'].get('source', '未知')} "
+                            f"(分数: {r['score']:.2f})"
+                        ):
+                            st.markdown(r["text"])
+                else:
+                    st.error(f"搜索失败: {resp.status_code}")
+            except Exception as e:
+                st.error(f"API 不可达: {e}")
 
 # ========== 多Agent协作 ==========
 elif mode == "🧠 多Agent协作":

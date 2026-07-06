@@ -3,12 +3,21 @@ import time
 
 BASE_URL = "http://localhost:8000"
 
+def auth_headers():
+    try:
+        resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+        if resp.status_code == 200:
+            return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception:
+        pass
+    return {}
+
 def test(name, msg):
     print(f"\n{'='*50}")
     print(f"测试: {name}")
     print(f"用户: {msg}")
     start = time.time()
-    resp = requests.post(f"{BASE_URL}/api/chat", json={"message": msg})
+    resp = requests.post(f"{BASE_URL}/api/chat", json={"message": msg}, headers=auth_headers())
     elapsed = time.time() - start
     if resp.status_code == 200:
         print(f"AI: {resp.json()['reply']}")

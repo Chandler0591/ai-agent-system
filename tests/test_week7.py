@@ -11,6 +11,15 @@ from sseclient import SSEClient
 
 BASE_URL = "http://localhost:8000"
 
+def auth_headers():
+    try:
+        resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+        if resp.status_code == 200:
+            return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception:
+        pass
+    return {}
+
 class Colors:
     GREEN = '\033[92m'
     RED = '\033[91m'
@@ -50,7 +59,8 @@ def test_agent_weather():
     print("\n=== 测试2: 天气查询 ===")
     
     resp = requests.post(f"{BASE_URL}/api/agent/run", 
-                        json={"message": "北京今天天气怎么样？", "verbose": True})
+                        json={"message": "北京今天天气怎么样？", "verbose": True},
+                        headers=auth_headers())
     
     if resp.status_code == 200:
         data = resp.json()
@@ -72,7 +82,8 @@ def test_agent_calculator():
     print("\n=== 测试3: 数学计算 ===")
     
     resp = requests.post(f"{BASE_URL}/api/agent/run",
-                        json={"message": "100乘以0.15等于多少？", "verbose": True})
+                        json={"message": "100乘以0.15等于多少？", "verbose": True},
+                        headers=auth_headers())
     
     if resp.status_code == 200:
         data = resp.json()
@@ -99,7 +110,8 @@ def test_agent_chat():
     print("\n=== 测试4: 普通对话 ===")
     
     resp = requests.post(f"{BASE_URL}/api/agent/run",
-                        json={"message": "你好，请介绍一下你自己", "verbose": True})
+                        json={"message": "你好，请介绍一下你自己", "verbose": True},
+                        headers=auth_headers())
     
     if resp.status_code == 200:
         data = resp.json()
@@ -131,7 +143,7 @@ def test_agent_multi_tool():
     all_passed = True
     for q in queries:
         print_info(f"\n问题: {q}")
-        resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": q})
+        resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": q}, headers=auth_headers())
         
         if resp.status_code == 200:
             data = resp.json()
@@ -150,7 +162,8 @@ def test_agent_steps_observability():
     print("\n=== 测试6: 步骤可观测性 ===")
     
     resp = requests.post(f"{BASE_URL}/api/agent/run",
-                        json={"message": "深圳天气和100+200的结果", "verbose": True})
+                        json={"message": "深圳天气和100+200的结果", "verbose": True},
+                        headers=auth_headers())
     
     if resp.status_code == 200:
         data = resp.json()
@@ -177,7 +190,7 @@ def test_agent_stream():
     try:
         resp = requests.post(f"{BASE_URL}/api/agent/stream",
                             json={"message": "北京天气", "verbose": True},
-                            stream=True)
+                            stream=True, headers=auth_headers())
         
         if resp.status_code == 200:
             client = SSEClient(resp)
@@ -205,13 +218,13 @@ def test_agent_error_handling():
     print("\n=== 测试8: 错误处理 ===")
     
     # 测试空消息
-    resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": ""})
+    resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": ""}, headers=auth_headers())
     if resp.status_code in [200, 400, 500]:
         print_info(f"空消息处理: {resp.status_code}")
     
     # 测试超长消息
     long_msg = "测试" * 1000
-    resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": long_msg})
+    resp = requests.post(f"{BASE_URL}/api/agent/run", json={"message": long_msg}, headers=auth_headers())
     if resp.status_code in [200, 400, 413, 500]:
         print_info(f"长消息处理: {resp.status_code}")
     

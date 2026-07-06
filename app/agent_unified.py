@@ -41,15 +41,23 @@ class UnifiedAgent:
         # 必须中相关以上才进 RAG，避免"低相关"碰瓷
         return best.get("score", 0) >= 0.65 and best.get("relevance") in ("高相关", "中相关")
     
-    def run(self, query: str, session_id: str = None, stream: bool = False, tenant_id: str = "default"):
-        """运行 Agent（带租户隔离）"""
-        set_tenant(tenant_id)  # 工具调用时使用
+    def run(self, query: str, session_id: str = None, stream: bool = False, tenant_id: str = "default", image: str = None, scene: str = "balanced", max_tokens: int = None, top_p: float = None):
+        """运行 Agent（带租户隔离 + 图片支持 + 场景）"""
+        set_tenant(tenant_id)
+
+        if image:
+            image_desc = llm_client.describe_image_base64(image)
+            if image_desc:
+                query = f"[用户上传了一张图片，内容描述：{image_desc}]\n\n用户问题：{query}"
+            else:
+                query = f"[用户上传了一张图片]\n\n用户问题：{query}"
+
         if stream:
-            return self._run_stream(query, session_id, tenant_id)
+            return self._run_stream(query, session_id, tenant_id, scene, max_tokens, top_p)
         else:
-            return self._run_sync(query, session_id, tenant_id)
+            return self._run_sync(query, session_id, tenant_id, scene, max_tokens, top_p)
     
-    def _run_sync(self, query: str, session_id: str = None, tenant_id: str = "default") -> Dict:
+    def _run_sync(self, query: str, session_id: str = None, tenant_id: str = "default", scene: str = "balanced", max_tokens: int = None, top_p: float = None) -> Dict:
         """同步执行"""
         wf_id = f"agent-{session_id[:8] if session_id else 'anon'}"
         workflow_tracker.start_workflow("UnifiedAgent", run_id=wf_id)
@@ -122,7 +130,7 @@ class UnifiedAgent:
                 "steps": [f"error: {str(e)}"]
             }
     
-    def _run_stream(self, query: str, session_id: str = None, tenant_id: str = "default") -> Generator:
+    def _run_stream(self, query: str, session_id: str = None, tenant_id: str = "default", scene: str = "balanced", max_tokens: int = None, top_p: float = None) -> Generator:
         """流式执行 —— SSE 逐 token 输出"""
         wf_id = f"agent-stream-{session_id[:8] if session_id else 'anon'}"
         workflow_tracker.start_workflow("UnifiedAgentStream", run_id=wf_id)
@@ -191,7 +199,7 @@ class UnifiedAgent:
             messages.append({"role": "user", "content": query})
             
             full_answer = ""
-            for token in llm_client.chat_with_tools_stream(messages, temperature=0.5):
+            for token in llm_client.chat_with_tools_stream(messages, temperature=0.5, scene=scene, max_tokens=max_tokens, top_p=top_p):
                 full_answer += token
                 yield {"type": "token", "data": token}
             

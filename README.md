@@ -1,4 +1,4 @@
-# 🏢 一站式智能 AI Agent 系统 (企业版 v2.1)
+# 🏢 一站式智能 AI Agent 系统 (企业版 v2.2)
 
 基于 **FastAPI + RAG 检索增强生成 + LangGraph** 搭建的一站式智能 AI Agent 系统。集成知识库问答、工具调用、多轮对话、工作流编排、质量评估、JWT 认证、多租户隔离（用户-租户 RBAC）、多 Agent 协作、Prometheus 监控等企业级能力，支持本地运行与 Docker 全栈容器化部署。
 
@@ -31,9 +31,37 @@
 - **多 Agent 协作**：Supervisor 调度模式（Researcher + Analyst + Executor），Human-in-the-loop 审批
 - **异步任务**：Celery 任务队列 + Flower 监控面板，PDF 处理异步化、自动重试
 - **量化评估体系**：支持 HitRate、MRR、NDCG 等检索指标评估；RAGAS 上下文相关性/忠实度/回答相关性
+- **数据脱敏**：正则匹配 + 智能掩码引擎，支持手机号/身份证/邮箱/金额/银行卡号脱敏，规则从 PostgreSQL 热加载
+- **审计日志**：全链路操作审计（登录/登出/上传/搜索/删除/对话/Agent），数据库不可用时静默降级
+- **通知推送**：钉钉机器人 + 企业微信机器人 Webhook 推送，支持多渠道同时通知
+- **结果导出**：Markdown 智能转换为 Word (.docx) / Excel (.xlsx)，保留标题、列表、表格格式
+- **图片对话**：支持图片上传 + 多模态视觉模型（GPT-4o/Qwen-VL/GLM-4V）描述 + OCR 文字提取，前端两个面板均支持
+- **场景化回答**：三种模式（🎯精准/⚖️平衡/🎨创意），自动调整 temperature 和系统提示词
+- **安全约束层**：内置 7 条安全规则自动注入每次 LLM 调用，防违规输出、防系统泄露
+- **会话收藏**：⭐ 一键收藏优质回答，侧边栏收藏列表，支持点击复用
 - **可观测性**：Prometheus 指标暴露、Grafana 可视化仪表盘、结构化日志
 - **可视化交互**：内置 Web 前端界面（支持租户登录/知识库管理）+ Streamlit 企业面板（4模式：Chat/KB搜索/多Agent/RAGAS评估）
 - **压力测试**：Locust 多用户画像压测脚本
+
+### 🖥️ 双前端架构
+
+系统提供两个前端入口，各司其职：
+
+| 维度 | Web 前端 (index.html) | Streamlit 面板 (streamlit_app.py) |
+|------|----------------------|----------------------------------|
+| **定位** | 操作面板 — 高频交互 | 管理面板 — 深度功能 |
+| **技术栈** | HTML + Vanilla JS | Python + Streamlit |
+| **渲染方式** | 浏览器端，毫秒级响应 | 服务端渲染，秒级往返 |
+| **核心能力** | 对话、收藏、复制、场景切换、图片上传、导出 | 对话、多Agent协作、RAGAS评估、知识库搜索、监控指标 |
+| **收藏/复制** | ✅ 原生 DOM 操作，一键即达 | ❌ Streamlit 架构限制，已移除 |
+| **多Agent协作** | ❌ | ✅ Supervisor 模式 + Human-in-the-loop |
+| **RAGAS 评估** | ❌ | ✅ 综合分/忠实度/上下文相关/回答相关 |
+| **知识库搜索** | ❌ | ✅ 独立搜索面板，支持结果数调节 |
+| **监控指标** | ❌ | ✅ Prometheus 指标实时解析展示 |
+| **开发效率** | 需 HTML/CSS/JS | 纯 Python，几十行一个页面 |
+| **部署** | 需 Nginx 静态服务 | `docker compose up -d streamlit` |
+
+> **设计原则**：index.html 负责需要即时反馈的操作（收藏、复制），streamlit 负责需要服务端处理的复杂流程（多Agent、评估）。两者共享同一套后端 API，功能互补而非替代。
 
 ---
 
@@ -176,7 +204,7 @@ python scripts/download_model.py
 ```text
 ai-agent-system/
 ├── app/                        # 核心业务代码目录
-│   ├── main.py                 # FastAPI 服务入口（企业版 v2.0）
+│   ├── main.py                 # FastAPI 服务入口（企业版 v2.2）
 │   ├── config.py               # 全局配置管理（12-Factor）
 │   ├── logger.py               # 统一日志工具
 │   ├── models.py               # 通用数据模型
@@ -196,6 +224,9 @@ ai-agent-system/
 │   ├── reranker.py             # 结果重排、MMR 多样性筛选
 │   ├── hyde.py                 # HyDE 语义查询增强
 │   ├── cache_manager.py        # Redis 缓存管理
+│   ├── desensitizer.py         # 数据脱敏引擎
+│   ├── exporter.py             # 结果导出（Word/Excel）
+│   ├── notifier.py             # 通知推送（钉钉/企微）
 │   │
 │   ├── session_manager.py      # 会话管理（Redis+内存双模式）
 │   ├── context_compressor.py   # 上下文压缩优化
@@ -213,6 +244,7 @@ ai-agent-system/
 │   ├── database.py             # [新] PostgreSQL 数据库管理
 │   │
 │   └── middleware/             # [新] 企业中间件
+│       ├── audit.py            #   审计日志
 │       ├── auth.py             #   JWT 认证鉴权
 │       ├── rate_limit.py       #   API 限流
 │       └── tenant.py           #   多租户隔离
@@ -256,10 +288,14 @@ ai-agent-system/
 - **混合检索模块**：BM25 关键词检索 + 向量语义检索双路召回，RRF 融合排序，索引自动缓存
 - **重排序模块**：优先 CrossEncoder 交叉编码器精准打分，回退 BiEncoder 二次相似度
 - **企业中间件**：`middleware/auth.py` JWT 认证 + 登出废止、`middleware/rate_limit.py` 滑动窗口限流（/api/task/ 白名单）、`middleware/tenant.py` 多租户隔离
-- **数据库**：`database.py` PostgreSQL 5 表（tenants, users, user_tenants, sessions, tasks），含连接池 + 重试机制
+- **数据库**：`database.py` PostgreSQL 8 表（tenants, users, user_tenants, sessions, tasks, desensitize_rules, audit_logs, bookmarks），含连接池 + 重试机制
 - **异步任务**：`tasks.py` Celery 任务队列（PDF 处理+自动重试）、Flower 监控面板
 - **监控**：`monitoring.py` Prometheus 指标（QPS/延迟/工具调用/LLM Token）、Grafana 仪表盘
 - **会话管理**：Redis / 内存双模式，历史消息、上下文自动压缩
+- **数据脱敏**：`desensitizer.py` — 单例脱敏引擎，正则匹配（手机/身份证/邮箱/金额/银行卡号），从 PostgreSQL 热加载规则，支持 `mask()` / `is_sensitive()` 检测
+- **审计日志**：`middleware/audit.py` — 全链路操作审计（login/logout/upload/search/delete/chat/agent），静默降级不影响业务
+- **通知推送**：`notifier.py` — 钉钉/企业微信 Webhook 机器人，`send_dingtalk()` / `send_wecom()` / `notify()` 三合一推送
+- **结果导出**：`exporter.py` — Markdown → Word (.docx) 保留标题/列表/表格；Markdown → Excel (.xlsx) 提取表格数据
 
 ---
 
@@ -280,6 +316,15 @@ ai-agent-system/
 | GET | `/api/me` | 获取当前用户信息（需认证） |
 | GET | `/api/kb/documents` | 知识库文档列表（租户隔离） |
 | DELETE | `/api/kb/documents/{name}` | 删除指定文档（租户隔离） |
+| GET | `/api/live` | Kubernetes Liveness 探针 |
+| GET | `/api/ready` | Kubernetes Readiness 探针（含依赖检查） |
+| GET | `/api/agent/mode` | Agent 模式切换（auto/rag/agent） |
+| GET | `/api/agent/status` | Agent 状态查询（工具列表、引擎状态） |
+| POST | `/api/export` | 回答导出（Word/Excel） |
+| POST | `/api/bookmark` | 收藏一条回答 |
+| POST | `/api/bookmark/toggle` | 切换收藏状态（收藏⇄取消） |
+| GET | `/api/bookmarks` | 获取收藏列表 |
+| DELETE | `/api/bookmark/{id}` | 删除收藏 |
 | GET | `/api/metrics` | Prometheus 指标 |
 | POST | `/api/multi-agent/run` | 多 Agent 协作 |
 | POST | `/api/rag/evaluate` | RAGAS 质量评估 |
@@ -328,7 +373,7 @@ ai-agent-system/
 - Locust 压力测试（3种用户画像）
 - 9容器 Docker Compose 全栈部署
 
-### ✅ v2.1 生产就绪（当前）
+### ✅ v2.1 生产就绪
 - JWT 认证 + Token 黑名单 + 登出废止
 - 多租户 RBAC（users + user_tenants 表，租户权限控制）
 - 默认共享租户（default 文档对所有租户可见）
@@ -339,10 +384,27 @@ ai-agent-system/
 - API 限流白名单（/api/task/ 轮询不限流）
 - 20 项冒烟测试（含生产认证 + 租户隔离）
 
+### ✅ v2.2 体验增强 + 安全加固
+- **数据脱敏引擎**：手机号/身份证/邮箱/金额/银行卡号，DB 热加载规则
+- **全链路审计日志**：login/logout/upload/search/delete/chat/agent，PG 不可用时降级
+- **通知推送**：钉钉 + 企业微信 Webhook，`NOTIFY_ENABLED` 开关控制
+- **结果导出**：Markdown → Word (.docx) / Excel (.xlsx)，含表格的对话自动显示 📊 按钮
+- **Kubernetes 健康探针**：`/api/live` + `/api/ready`（含 ChromaDB/Redis/LLM 依赖检查）
+- **多模态图片对话**：图片上传 + 视觉模型描述（GPT-4o/Qwen-VL/GLM-4V）+ OCR 降级
+- **Temperature 场景化**：🎯精准 / ⚖️平衡 / 🎨创意 三种模式，自动调整 temperature + 提示词
+- **System Prompt 安全约束**：7 条规则自动注入每次 LLM 调用，防违规输出和系统泄露
+- **会话收藏**：⭐ 一键收藏回答，侧边栏列表管理，支持点击复用 + ✕ 取消，租户/用户隔离
+- **max_tokens / top_p 可控**：用户自定义输出长度与发散度，API 参数透传
+- **接口认证加固**：核心接口（chat/agent/upload/export）全部 `get_current_user`，未登录返回 401
+- **前端登录拦截**：未登录时 index.html 提示"请先登录"，streamlit `st.stop()` 阻断操作
+- **危险操作确认**：清空知识库/删除文档弹出"不可恢复"警告
+- **双前端架构**：操作面板（index.html，毫秒级交互） + 管理面板（streamlit，多Agent/评估/监控）
+- **容器安全策略**：非 root 用户/只读文件系统/Cap 裁剪等加固措施移至「大型企业升级路径」，生产环境按需启用
+
 ### 🔜 待完善
-- 流式输出体验优化
 - 模型性能压测与效果对比
 - Kubernetes Helm Chart 部署
+- Function Calling 提示词管理 
 
 ---
 
@@ -359,4 +421,60 @@ ai-agent-system/
 9. **429 限流**：默认每分钟 60 次请求，可在 `.env` 调整 `API_RATE_LIMIT`；`/api/task/` 内部轮询不限流
 10. **Celery Worker 未启动**：异步 PDF 处理需要 `celery -A app.celery_app worker`；开发环境自动回退到同步处理
 11. **冒烟测试**：运行 `python tests/test_smoke.py` 验证全链路（需服务已启动）
+12. **图片对话不可用**：检查 `.env` 中 `VISION_ENABLED=true` 且 `VISION_API_KEY` 已正确配置
+13. **场景切换不生效**：确保 `scene` 参数正确传递（precise/balanced/creative），可通过 `/docs` 调试
 
+---
+
+## 大型企业升级路径
+
+> 当前定位：**中小企业 / 部门级**企业平台（20-50并发，单实例）。以下为从部门级升级到集团级的备忘清单。
+
+### 🏗 架构层
+
+| 当前 | 目标 | 方案 |
+|------|------|------|
+| 单 uvicorn 进程 | Gunicorn 4-8 worker | `gunicorn -w 4 -k uvicorn.workers.UvicornWorker` |
+| 无反向代理 | Nginx 负载均衡 | 加 `nginx` 容器，`upstream` 指向多 api 实例 |
+| PG 连接池 max=10 | PgBouncer 连接池 | 加 `pgbouncer` 容器，减少 PG 连接开销 |
+| 单 PG 实例 | 主从 + 读写分离 | PG 流复制 + 应用层读写路由 |
+| 单 Redis | Sentinel / Cluster | 高可用 Redis 集群 |
+
+### 🔒 安全合规层
+
+| 当前 | 目标 | 方案 |
+|------|------|------|
+| root 运行容器 | 非 root 用户（uid=1001） | Dockerfile `USER appuser` |
+| 文件系统可写 | 只读根文件系统 | `read_only: true` + `tmpfs` 仅 /tmp 可写 |
+| 完整 Capabilities | 最小权限原则 | `cap_drop: ALL` + `cap_add: NET_BIND_SERVICE` |
+| JWT 无刷新 | OAuth2 + Refresh Token | 加 `/api/token/refresh` 端点 |
+| SHA256 密码 | bcrypt / argon2 | `passlib` 切换 hash 算法 |
+| 无 SSO | LDAP / OIDC / SAML | 集成 `python-ldap` 或 Keycloak |
+| 无传输加密 | TLS 1.3 | Nginx 反向代理挂载证书 |
+| 无等保材料 | 等保二级/三级 | 安全审计 + 渗透测试报告 |
+
+### 📊 可观测性层
+
+| 当前 | 目标 | 方案 |
+|------|------|------|
+| Prometheus 基础指标 | 业务指标（租户用量、Token 成本） | 扩展 `monitoring.py` 自定义 metrics |
+| 无告警 | Alertmanager 规则 | `alert_rules.yml`：QPS 异常、5xx 率过高 |
+| 无分布式追踪 | OpenTelemetry + Jaeger | 加 tracing 中间件，跨服务链路追踪 |
+| 结构化日志 | ELK / Loki 聚合 | 加 Filebeat/Fluentd 容器采集 |
+
+### 🚀 性能与体验
+
+| 当前 | 目标 | 方案 |
+|------|------|------|
+| 无 LLM 熔断 | 熔断器 | `tenacity` / `circuitbreaker` 装饰器 |
+| 无请求超时 | 统一超时中间件 | FastAPI `TimeoutMiddleware` |
+| 单语言 | i18n 国际化 | `gettext` + 翻译文件 |
+
+### 🏢 多租户商业化
+
+| 当前 | 目标 | 方案 |
+|------|------|------|
+| 3 个预置租户 | 自助注册 + 审批 | `/api/tenant/register` + 管理员审核 |
+| 固定配额 | 套餐制（免费/专业/企业） | `plans` 表 + 用量计费 |
+| 无计费 | Token/API 用量账单 | 月度统计 + 账单导出 |
+| 无自定义品牌 | 租户品牌定制 | `tenant_configs` 表（Logo/主题/域名） |

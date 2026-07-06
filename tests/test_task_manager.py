@@ -15,6 +15,16 @@ import concurrent.futures
 BASE_URL = "http://localhost:8000"
 TEST_PDF = os.path.join(os.path.dirname(__file__), "..", "迅腾智能卡口系统.pdf")
 
+# ---- 认证辅助 ----
+def auth_headers():
+    try:
+        resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+        if resp.status_code == 200:
+            return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception:
+        pass
+    return {}
+
 # 颜色输出
 class Colors:
     GREEN = '\033[92m'
@@ -73,7 +83,7 @@ def test_upload_with_task():
         print_info("步骤1: 发起异步上传请求...")
         with open(TEST_PDF, "rb") as f:
             files = {"file": (TEST_PDF, f, "application/pdf")}
-            resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30)
+            resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30, headers=auth_headers())
         
         if resp.status_code != 200:
             print_error(f"上传失败: {resp.text}")
@@ -171,7 +181,7 @@ def test_duplicate_upload():
         try:
             with open(TEST_PDF, "rb") as f:
                 files = {"file": (TEST_PDF, f, "application/pdf")}
-                resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30)
+                resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30, headers=auth_headers())
             
             if resp.status_code == 200:
                 task_id = resp.json().get("task_id")
@@ -211,7 +221,7 @@ def test_search_after_upload():
     
     for keyword in keywords:
         try:
-            resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": keyword, "top_k": 3})
+            resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": keyword, "top_k": 3}, headers=auth_headers())
             if resp.status_code == 200:
                 data = resp.json()
                 total = data.get('total', 0)
@@ -254,7 +264,7 @@ def test_concurrent_uploads():
         try:
             with open(TEST_PDF, "rb") as f:
                 files = {"file": (f"test_{index}.pdf", f, "application/pdf")}
-                resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30)
+                resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, timeout=30, headers=auth_headers())
             if resp.status_code == 200:
                 return resp.json().get("task_id")
         except:
@@ -287,7 +297,7 @@ def test_clear_knowledge_base():
     print_section("测试8: 清空知识库")
     
     try:
-        resp = requests.delete(f"{BASE_URL}/api/rag/clear")
+        resp = requests.delete(f"{BASE_URL}/api/rag/clear", headers=auth_headers())
         if resp.status_code == 200:
             print_success("知识库已清空")
             return True

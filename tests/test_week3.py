@@ -1,8 +1,19 @@
 import os
+import requests
+import time
 
 BASE_URL = "http://localhost:8000"
 
 TEST_DATA = os.path.join(os.path.dirname(__file__), "data")
+
+def auth_headers():
+    try:
+        resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+        if resp.status_code == 200:
+            return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception:
+        pass
+    return {}
 
 def test_upload_pdf():
     """测试PDF上传"""
@@ -10,14 +21,14 @@ def test_upload_pdf():
     
     pdf_file = os.path.join(TEST_DATA, "test.pdf")
     files = {'file': ('test.pdf', open(pdf_file, 'rb'), 'application/pdf')}
-    response = requests.post(f"{BASE_URL}/api/rag/upload", files=files)
+    response = requests.post(f"{BASE_URL}/api/rag/upload", files=files, headers=auth_headers())
     print(f"状态码: {response.status_code}")
     print(f"响应: {response.json()}")
 
 def test_search():
     """测试搜索"""
     print("\n=== 测试2: 搜索知识库 ===")
-    response = requests.get(f"{BASE_URL}/api/rag/search", params={"q": "Docker", "top_k": 2})
+    response = requests.get(f"{BASE_URL}/api/rag/search", params={"q": "Docker", "top_k": 2}, headers=auth_headers())
     print(f"状态码: {response.status_code}")
     results = response.json()
     print(f"搜索: {results['query']}")
@@ -30,7 +41,8 @@ def test_rag_ask():
     print("\n=== 测试3: RAG问答 ===")
     response = requests.post(
         f"{BASE_URL}/api/rag/ask",
-        json={"question": "什么是Docker？", "use_search": True}
+        json={"question": "什么是Docker？", "use_search": True},
+        headers=auth_headers()
     )
     print(f"状态码: {response.status_code}")
     print(f"回答: {response.json()['answer']}")
@@ -40,7 +52,8 @@ def test_tool_calling():
     print("\n=== 测试4: 工具调用 ===")
     response = requests.post(
         f"{BASE_URL}/api/chat",
-        json={"message": "北京天气怎么样？"}
+        json={"message": "北京天气怎么样？"},
+        headers=auth_headers()
     )
     print(f"状态码: {response.status_code}")
     print(f"回答: {response.json()['reply']}")

@@ -9,3 +9,5 @@ tests
 *.pdf
 test123.py
 redis_data
+models
+chroma_data

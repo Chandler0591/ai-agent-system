@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, APIRouter, Depends, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
@@ -10,7 +10,7 @@ import uuid
 import json
 from datetime import datetime
 
-from app.models import ChatRequest, ChatResponse, UploadResponse, AgentRunRequest, AgentRunResponse
+from app.models import ChatRequest, ChatResponse, UploadResponse, AgentRunRequest, AgentRunResponse, BookmarkRequest
 from app.llm_client import llm_client
 from app.knowledge_base import knowledge_base
 from app.vector_store import vector_store
@@ -32,6 +32,7 @@ from app.middleware.auth import create_access_token, verify_token, get_tenant_id
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.tenant import TenantMiddleware
 from app.monitoring import metrics_endpoint, track_documents
+from app.middleware.audit import log_audit, AUDIT_LOGIN, AUDIT_LOGOUT, AUDIT_UPLOAD, AUDIT_SEARCH, AUDIT_DELETE, AUDIT_CHAT
 
 # ========== 第2阶段新模块（可选导入，无依赖时降级） ==========
 try:
@@ -48,8 +49,10 @@ except ImportError:
 
 app = FastAPI(
     title="AI Agent 企业版",
-    version="2.0.0",
-    description="企业级 RAG + Agent 智能系统：JWT认证、限流、多租户、异步任务、多Agent编排、Prometheus监控"
+    version="2.2.0",
+    description="企业级 RAG + Agent 智能系统：JWT认证、限流、多租户、异步任务、多Agent编排、Prometheus监控",
+    docs_url=None if config.ENV != "development" else "/docs",
+    redoc_url=None if config.ENV != "development" else "/redoc",
 )
 
 api_router = APIRouter(prefix="/api")
@@ -149,14 +152,21 @@ def get_stats():
 
 # ========== 统一 Agent 接口 ==========
 @api_router.post("/agent/run", response_model=AgentRunResponse)
-async def agent_run(request: AgentRunRequest, tenant_id: str = Depends(_get_tenant_id)):
-    """运行统一 Agent"""
+async def agent_run(request: AgentRunRequest, tenant_id: str = Depends(_get_tenant_id), username: str = Depends(get_current_user)):
+    """运行统一 Agent（支持图片对话）"""
     try:
         session_id = request.session_id or str(uuid.uuid4())
-        
-        # 执行 Agent
-        result = unified_agent.run(request.message, session_id, tenant_id=tenant_id)
-        
+
+        # 执行 Agent（传入 image + scene 参数）
+        result = unified_agent.run(
+            request.message, session_id,
+            tenant_id=tenant_id,
+            image=request.image,
+            scene=request.scene,
+            max_tokens=request.max_tokens,
+            top_p=request.top_p
+        )
+
         return AgentRunResponse(
             reply=result["answer"],
             session_id=result["session_id"],
@@ -171,13 +181,20 @@ async def agent_run(request: AgentRunRequest, tenant_id: str = Depends(_get_tena
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/agent/stream")
-async def agent_stream(request: AgentRunRequest, tenant_id: str = Depends(_get_tenant_id)):
-    """流式运行 Agent"""
+async def agent_stream(request: AgentRunRequest, tenant_id: str = Depends(_get_tenant_id), username: str = Depends(get_current_user)):
+    """流式运行 Agent（支持图片对话）"""
     session_id = request.session_id or str(uuid.uuid4())
     
     async def generate():
         try:
-            for chunk in unified_agent.run(request.message, session_id, stream=True, tenant_id=tenant_id):
+            for chunk in unified_agent.run(
+                request.message, session_id,
+                stream=True, tenant_id=tenant_id,
+                image=request.image,
+                scene=request.scene,
+                max_tokens=request.max_tokens,
+                top_p=request.top_p
+            ):
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
@@ -204,11 +221,21 @@ async def agent_mode(mode: str):
 
 # ========== 简单对话接口==========
 @api_router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """简单对话"""
+async def chat(request: ChatRequest, username: str = Depends(get_current_user)):
+    """简单对话（支持图片）"""
     try:
         session_id = request.session_id or str(uuid.uuid4())
-        messages = [{"role": "user", "content": request.message}]
+        message = request.message
+
+        # 图片预处理
+        if request.image:
+            image_desc = llm_client.describe_image_base64(request.image)
+            if image_desc:
+                message = f"[用户上传了一张图片，内容描述：{image_desc}]\n\n用户问题：{message}"
+            else:
+                message = f"[用户上传了一张图片]\n\n用户问题：{message}"
+
+        messages = [{"role": "user", "content": message}]
         reply = llm_client.chat(messages, request.temperature)
         
         session_manager.add_message(session_id, "user", request.message)
@@ -228,6 +255,7 @@ async def upload_pdf(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     tenant_id: str = Depends(_get_tenant_id),
+    username: str = Depends(get_current_user),
     force: bool = False,  # ?force=true 强制重新上传
 ):
     if not file.filename.endswith('.pdf'):
@@ -252,9 +280,11 @@ async def upload_pdf(
     # Celery 可用时走异步队列，否则降级到 BackgroundTasks
     if CELERY_AVAILABLE:
         process_pdf_async.delay(task_id, tmp_path, file.filename, tenant_id, force)
+        log_audit(tenant_id=tenant_id, username=username, action=AUDIT_UPLOAD, detail=f"上传: {file.filename}")
         logger.info(f"PDF 已派发到 Celery 队列: {file.filename} (tenant={tenant_id}, force={force})")
     else:
         background_tasks.add_task(process_pdf_background, task_id, tmp_path, file.filename, tenant_id, force)
+        log_audit(tenant_id=tenant_id, username=username, action=AUDIT_UPLOAD, detail=f"上传(同步): {file.filename}")
     
     return UploadResponse(
         status="processing",
@@ -270,12 +300,13 @@ async def rag_ask(question: str, use_search: bool = True):
     return result
 
 @api_router.get("/rag/search")
-async def search_knowledge(q: str, top_k: int = 3, tenant_id: str = Depends(_get_tenant_id)):
+async def search_knowledge(q: str, top_k: int = 3, tenant_id: str = Depends(_get_tenant_id), username: str = Depends(get_current_user)):
+    log_audit(tenant_id=tenant_id, username=username, action=AUDIT_SEARCH, detail=f"搜索: {q[:50]}")
     results = knowledge_base.search(q, top_k, tenant_id=tenant_id)
     return {"query": q, "results": results, "total": len(results)}
 
 @api_router.delete("/rag/clear")
-async def clear_knowledge_base():
+async def clear_knowledge_base(username: str = Depends(get_current_user)):
     knowledge_base.clear()
     return {"status": "success", "message": "知识库已清空"}
 
@@ -286,9 +317,10 @@ async def list_kb_documents(tenant_id: str = Depends(_get_tenant_id)):
     return {"documents": sources, "total": len(sources)}
 
 @api_router.delete("/kb/documents/{source_name:path}")
-async def delete_kb_document(source_name: str, tenant_id: str = Depends(_get_tenant_id)):
+async def delete_kb_document(source_name: str, tenant_id: str = Depends(_get_tenant_id), username: str = Depends(get_current_user)):
     """删除当前租户下指定文档"""
     result = knowledge_base.delete_source(source_name, tenant_id=tenant_id)
+    log_audit(tenant_id=tenant_id, username=username, action=AUDIT_DELETE, detail=f"删除文档: {source_name}")
     if result["status"] == "not_found":
         raise HTTPException(status_code=404, detail="文档不存在")
     return result
@@ -342,6 +374,7 @@ async def login(
         username=form_data.username,
         tenant_id=tenant_id,
     )
+    log_audit(tenant_id=tenant_id, username=form_data.username, action=AUDIT_LOGIN, detail="登录成功")
     return {"access_token": token, "token_type": "bearer", "tenant_id": tenant_id}
 
 
@@ -359,6 +392,7 @@ async def revoke(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=400, detail="缺少 Authorization header")
     token = authorization[7:]
     revoke_token(token)
+    log_audit(username="anonymous", action=AUDIT_LOGOUT, detail="登出")
     return {"message": "已登出，token 已废止"}
 
 
@@ -436,6 +470,82 @@ async def get_all_tasks(limit: int = 50):
     tasks = task_manager.get_tasks(limit)
     return {"tasks": tasks, "count": len(tasks)}
 
+# ========== 收藏管理接口 ==========
+@api_router.post("/bookmark")
+async def add_bookmark(request: BookmarkRequest, username: str = Depends(get_current_user),
+                       tenant_id: str = Depends(_get_tenant_id)):
+    """收藏一条回答（自动去重，已存在则忽略）"""
+    try:
+        from app.database import database_manager
+        bid = database_manager.add_bookmark(
+            session_id=request.session_id,
+            question=request.question,
+            answer=request.answer,
+            tenant_id=tenant_id,
+            username=username,
+            tag=request.tag
+        )
+        if bid:
+            return {"status": "bookmarked", "id": bid}
+        return {"status": "duplicate", "note": "已收藏过"}
+    except Exception as e:
+        logger.error(f"收藏失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/bookmark/toggle")
+async def toggle_bookmark(request: BookmarkRequest, username: str = Depends(get_current_user),
+                          tenant_id: str = Depends(_get_tenant_id)):
+    """切换收藏状态：已收藏→取消，未收藏→添加"""
+    try:
+        from app.database import database_manager
+        # 先尝试添加
+        bid = database_manager.add_bookmark(
+            session_id=request.session_id,
+            question=request.question,
+            answer=request.answer,
+            tenant_id=tenant_id,
+            username=username,
+            tag=request.tag
+        )
+        if bid:
+            return {"status": "bookmarked", "id": bid}
+        # 已存在 → 取消收藏
+        database_manager.remove_bookmark_by_answer(request.session_id, request.answer)
+        return {"status": "unbookmarked"}
+    except Exception as e:
+        logger.error(f"切换收藏失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/bookmarks")
+async def list_bookmarks(tenant_id: str = Depends(_get_tenant_id),
+                         username: str = Depends(get_current_user),
+                         limit: int = 100):
+    """获取收藏列表"""
+    try:
+        from app.database import database_manager
+        bookmarks = database_manager.get_bookmarks(
+            tenant_id=tenant_id, username=username, limit=limit
+        )
+        return {"bookmarks": bookmarks, "total": len(bookmarks)}
+    except Exception as e:
+        logger.error(f"获取收藏失败: {e}")
+        return {"bookmarks": [], "total": 0}
+
+@api_router.delete("/bookmark/{bookmark_id}")
+async def remove_bookmark(bookmark_id: int):
+    """删除收藏"""
+    try:
+        from app.database import database_manager
+        ok = database_manager.delete_bookmark(bookmark_id)
+        if ok:
+            return {"status": "deleted"}
+        raise HTTPException(status_code=404, detail="收藏不存在")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除收藏失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ========== 全局异常处理 ==========
 @app.exception_handler(HTTPException)
@@ -456,6 +566,25 @@ async def global_exception_handler(request, exc):
             "message": str(exc) if os.getenv("ENV") == "development" else "请联系管理员"
         }
     )
+
+
+# ========== 结果导出 ==========
+@api_router.post("/export")
+async def export_result(format: str = "docx", text: str = Form(""), username: str = Depends(get_current_user)):
+    """导出回答为 Word/Excel"""
+    from app.exporter import markdown_to_docx, markdown_tables_to_excel
+    if not text:
+        raise HTTPException(status_code=400, detail="内容为空")
+    if format == "docx":
+        data = markdown_to_docx(text)
+        return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                       headers={"Content-Disposition": "attachment; filename=answer.docx"})
+    elif format == "xlsx":
+        data = markdown_tables_to_excel(text)
+        return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       headers={"Content-Disposition": "attachment; filename=data.xlsx"})
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的格式: {format}")
 
 
 # ========== 前端 ==========

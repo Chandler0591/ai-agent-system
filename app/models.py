@@ -7,6 +7,10 @@ class ChatRequest(BaseModel):
     message: str
     temperature: float = 0.7
     session_id: Optional[str] = None
+    image: Optional[str] = None  # base64 编码的图片数据（支持 jpg/png/webp/gif）
+    scene: Optional[str] = "balanced"  # precise / balanced / creative
+    max_tokens: Optional[int] = None   # 最大输出 token 数
+    top_p: Optional[float] = None      # 核采样参数（0~1）
 
 class ChatResponse(BaseModel):
     reply: str
@@ -53,6 +57,10 @@ class AgentRunRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     mode: Optional[str] = "auto"
+    image: Optional[str] = None  # base64 编码的图片数据（支持 jpg/png/webp/gif）
+    scene: Optional[str] = "balanced"  # precise / balanced / creative
+    max_tokens: Optional[int] = None   # 最大输出 token 数
+    top_p: Optional[float] = None      # 核采样参数（0~1）
 
 class AgentRunResponse(BaseModel):
     reply: str
@@ -72,3 +80,17 @@ class AgentState(TypedDict):
     final_answer: str               # 最终答案
     iteration: int                  # 迭代次数
     max_iterations: int             # 最大迭代次数
+
+class BookmarkRequest(BaseModel):
+    session_id: str
+    question: str
+    answer: str
+    tag: Optional[str] = ""
+
+class BookmarkResponse(BaseModel):
+    id: int
+    session_id: str
+    question: str
+    answer: str
+    tag: str
+    created_at: str

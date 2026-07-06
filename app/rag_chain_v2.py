@@ -7,6 +7,8 @@ from app.hyde import hyde
 from app.cache_manager import cache_manager
 from app.logger import logger
 from app.vector_store import vector_store
+from app.desensitizer import desensitizer
+from app.database import database_manager
 
 class RAGChainV2:
     """增强版RAG链 - 包含多路召回、重排序、HyDE、缓存"""
@@ -159,8 +161,8 @@ class RAGChainV2:
                 "from_cache": False
             }
         
-        # 5. 构建上下文
-        context = self._build_context(documents)
+        # 5. 构建脱敏上下文
+        context = self._build_safe_context(documents, tenant_id=tenant_id)
         
         # 6. 生成回答
         prompt = self.system_prompt.format(context=context, question=question)
@@ -179,6 +181,17 @@ class RAGChainV2:
         for i, doc in enumerate(documents, 1):
             context_parts.append(f"[{i}] {doc['text']}")
         return "\n\n".join(context_parts)
+
+    def _build_safe_context(self, documents: List[Dict], tenant_id: str = "default") -> str:
+        """构建脱敏后的上下文（发给公有 LLM 前的最后一道防线）"""
+        context = self._build_context(documents)
+        # 检查租户是否开启脱敏
+        try:
+            if database_manager.is_desensitize_enabled(tenant_id):
+                context = desensitizer.mask(context)
+        except Exception:
+            pass  # 脱敏失败不阻塞业务
+        return context
     
     def compare_methods(self, question: str) -> Dict:
         """对比不同检索方法的效果"""

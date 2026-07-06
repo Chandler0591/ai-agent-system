@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI知识库系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: false, theme: 'default' });</script>
     <style>
         * {
             margin: 0;
@@ -230,6 +234,15 @@
             justify-content: space-between;
             align-items: center;
         }
+
+        .scene-selector { display: flex; gap: 6px; align-items: center; }
+        .scene-btn {
+            padding: 4px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8);
+            cursor: pointer; font-size: 12px; transition: all 0.2s;
+        }
+        .scene-btn:hover { background: rgba(255,255,255,0.25); }
+        .scene-btn.active { background: rgba(255,255,255,0.35); color: #fff; border-color: #fff; }
         
         .clear-btn {
             background: rgba(255,255,255,0.2);
@@ -323,7 +336,38 @@
         .send-btn:hover {
             transform: scale(1.02);
         }
-        
+
+        .image-btn {
+            background: #f0f0f0; color: #555; border: 1px solid #ddd;
+            padding: 0 12px; border-radius: 24px; cursor: pointer; font-size: 18px;
+            transition: all 0.2s; white-space: nowrap;
+        }
+        .image-btn:hover { background: #e8e8ff; border-color: #667eea; }
+        .image-btn.has-image { background: #667eea; color: white; border-color: #667eea; }
+        .image-preview { display: none; padding: 8px 20px 0 20px; }
+        .image-preview.show { display: flex; align-items: center; gap: 8px; }
+        .image-preview img { max-height: 60px; border-radius: 8px; border: 1px solid #ddd; }
+        .image-preview .remove-img {
+            background: #f44336; color: white; border: none; border-radius: 50%;
+            width: 20px; height: 20px; font-size: 12px; cursor: pointer; text-align: center;
+        }
+        .msg-image { max-width: 200px; max-height: 200px; border-radius: 8px; margin-bottom: 6px; display: block; }
+
+        .bookmarks-panel { margin-top: 20px; max-height: 300px; overflow-y: auto; }
+        .bookmark-item {
+            background: #fff; border: 1px solid #eee; border-radius: 8px;
+            padding: 8px 10px; margin-bottom: 6px; font-size: 12px; cursor: pointer; transition: all 0.2s;
+        }
+        .bookmark-item:hover { background: #f8f9ff; border-color: #667eea; }
+        .bookmark-question { font-weight: 600; color: #333; margin-bottom: 2px; }
+        .bookmark-answer { color: #666; max-height: 40px; overflow: hidden; }
+        .bookmark-tag { color: #999; font-size: 10px; }
+        .bookmark-delete {
+            background: none; border: none; color: #ccc; cursor: pointer;
+            font-size: 14px; padding: 0 4px; float: right;
+        }
+        .bookmark-delete:hover { color: #f44336; }
+
         .loading {
             display: inline-block;
             width: 20px;
@@ -395,13 +439,28 @@
                 </div>
             </div>
             <button class="clear-all-btn" onclick="clearKnowledgeBase()">🗑️ 清空知识库</button>
+
+            <div class="section-header">
+                <span>⭐ 我的收藏</span>
+                <button class="refresh-btn" onclick="loadBookmarks()">🔄 刷新</button>
+            </div>
+            <div class="bookmarks-panel" id="bookmarksPanel">
+                <div class="file-list-empty">暂无收藏</div>
+            </div>
         </div>
         
         <!-- 聊天区域 -->
         <div class="chat-area">
             <div class="chat-header">
                 <span>🤖 AI知识库助手</span>
-                <button class="clear-btn" onclick="clearChat()">🗑️ 清空对话</button>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="scene-selector" id="sceneSelector">
+                        <button class="scene-btn" data-scene="precise" title="精准回答：基于事实，减少推测">🎯 精准</button>
+                        <button class="scene-btn active" data-scene="balanced" title="平衡回答：准确性与友好性兼得">⚖️ 平衡</button>
+                        <button class="scene-btn" data-scene="creative" title="创意发挥：多角度思考，适度发散">🎨 创意</button>
+                    </div>
+                    <button class="clear-btn" onclick="clearChat()">🗑️ 清空</button>
+                </div>
             </div>
             
             <div class="chat-messages" id="chatMessages">
@@ -416,8 +475,14 @@
                 </div>
             </div>
             
+            <div class="image-preview" id="imagePreview">
+                <img id="previewImg" src="" alt="预览">
+                <button class="remove-img" onclick="clearImage()">✕</button>
+            </div>
             <div class="chat-input-area">
                 <input type="text" class="chat-input" id="chatInput" placeholder="输入你的问题...">
+                <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImageSelect(event)">
+                <button class="image-btn" id="imageBtn" onclick="document.getElementById('imageInput').click()" title="上传图片">🖼️</button>
                 <button class="send-btn" id="sendBtn">发送</button>
             </div>
         </div>
@@ -446,9 +511,95 @@
         let currentTenant = 'default';
         let authToken = '';
         let currentUser = '';
+        let lastAnswerText = '';  // 保存最新回答用于导出
         
         function getAuthHeaders() {
             return authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+        }
+
+        // ---- 渲染: Mermaid + 代码高亮 ----
+        function renderMarkdown(el, text) {
+            if (text.includes('```mermaid')) {
+                text = text.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
+                    const id = 'mermaid-' + Math.random().toString(36).slice(2, 8);
+                    setTimeout(() => {
+                        try { mermaid.render(id + '-svg', code).then(({svg}) => {
+                            const el = document.getElementById(id);
+                            if (el) el.innerHTML = svg;
+                        }); } catch(e) {}
+                    }, 100);
+                    return `<div id="${id}" class="mermaid-container"></div>`;
+                });
+            }
+            text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+                try {
+                    const highlighted = lang && hljs.getLanguage(lang)
+                        ? hljs.highlight(code, { language: lang }).value : hljs.highlightAuto(code).value;
+                    return `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+                } catch(e) { return `<pre><code>${code}</code></pre>`; }
+            });
+            text = text.replace(/\|(.+)\|\n\|[-: |]+\|\n((?:\|.+\|\n?)*)/g, (match) => {
+                const rows = match.trim().split('\n').filter(r => r.includes('|') && !r.includes('---'));
+                let html = '<table style="border-collapse:collapse;width:100%;margin:8px 0">';
+                rows.forEach((row, i) => {
+                    const cells = row.split('|').filter(c => c.trim());
+                    const tag = i === 0 ? 'th' : 'td';
+                    html += '<tr>' + cells.map(c => `<${tag} style="border:1px solid #ddd;padding:6px">${c.trim()}</${tag}>`).join('') + '</tr>';
+                });
+                return html + '</table>';
+            });
+            text = text.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+            text = text.replace(/\n/g, '<br>');
+            el.innerHTML = text;
+        }
+
+        function addActionButtons(el, text) {
+            const btnGroup = document.createElement('div');
+            btnGroup.style.cssText = 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap';
+
+            const starBtn = document.createElement('button');
+            starBtn.innerText = '☆ 收藏';
+            starBtn.style.cssText = 'padding:2px 8px;font-size:11px;border:1px solid #ffc107;border-radius:4px;cursor:pointer;background:#fffbe6';
+            starBtn.onclick = async () => {
+                starBtn.innerText = '⏳';
+                try {
+                    await fetch(`${API_BASE}/bookmark/toggle`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                        body: JSON.stringify({ session_id: sessionId, question: text.split('\n')[0].substring(0, 100), answer: text, tag: '' })
+                    });
+                    loadBookmarks();
+                } catch(e) {}
+                starBtn.innerText = '☆ 收藏';
+            };
+            btnGroup.appendChild(starBtn);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.innerText = '📋 复制';
+            copyBtn.style.cssText = 'padding:2px 8px;font-size:11px;border:1px solid #ddd;border-radius:4px;cursor:pointer;background:#fff';
+            copyBtn.onclick = () => { navigator.clipboard.writeText(text.replace(/<[^>]+>/g,'').replace(/<br>/g,'\n')); copyBtn.innerText = '✅ 已复制'; setTimeout(() => copyBtn.innerText = '📋 复制', 2000); };
+            btnGroup.appendChild(copyBtn);
+
+            const wordBtn = document.createElement('button');
+            wordBtn.innerText = '📄 Word';
+            wordBtn.style.cssText = 'padding:2px 8px;font-size:11px;border:1px solid #ddd;border-radius:4px;cursor:pointer;background:#fff';
+            wordBtn.onclick = async () => {
+                const resp = await fetch(`${API_BASE}/export?format=docx`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...getAuthHeaders() }, body: `text=${encodeURIComponent(lastAnswerText)}` });
+                if (resp.ok) { const blob = await resp.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'answer.docx'; a.click(); }
+            };
+            btnGroup.appendChild(wordBtn);
+
+            if (text.includes('|') && text.includes('---')) {
+                const excelBtn = document.createElement('button');
+                excelBtn.innerText = '📊 Excel';
+                excelBtn.style.cssText = 'padding:2px 8px;font-size:11px;border:1px solid #ddd;border-radius:4px;cursor:pointer;background:#fff';
+                excelBtn.onclick = async () => {
+                    const resp = await fetch(`${API_BASE}/export?format=xlsx`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...getAuthHeaders() }, body: `text=${encodeURIComponent(lastAnswerText)}` });
+                    if (resp.ok) { const blob = await resp.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'data.xlsx'; a.click(); }
+                };
+                btnGroup.appendChild(excelBtn);
+            }
+            el.appendChild(btnGroup);
         }
         
         async function loadTenants() {
@@ -488,6 +639,7 @@
                     document.getElementById('displayTenant').innerText = tenantId;
                     msgEl.innerHTML = '';
                     await loadKbDocuments();
+                    await loadBookmarks();
                     await loadStats();
                 } else {
                     const err = await resp.json().catch(() => ({}));
@@ -510,6 +662,13 @@
             document.getElementById('noLoginHint').style.display = 'block';
             document.getElementById('loginUser').value = '';
             document.getElementById('loginPass').value = '';
+            // 清空收藏面板
+            window._bookmarkedAnswers = new Set();
+            document.getElementById('bookmarksPanel').innerHTML = '<div class="file-list-empty">暂无收藏</div>';
+            // 清空对话
+            chatMessages.innerHTML = '<div class="message assistant"><div class="message-content">已退出登录，请重新登录后开始对话</div></div>';
+            sessionId = 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            lastAnswerText = '';
             loadStats();
             loadKbDocuments();
         }
@@ -538,6 +697,7 @@
             await loadTenants();
             await loadStats();
             await loadKbDocuments();
+            await loadBookmarks();
             setupEventListeners();
         }
         
@@ -722,60 +882,61 @@
         async function sendMessage() {
             const message = chatInput.value.trim();
             if (!message) return;
-            
-            // 显示用户消息
-            addMessage('user', message);
+
+            if (!authToken) {
+                addMessage('system', '⚠️ 请先在左侧登录后再发送消息');
+                document.getElementById('loginUser').focus();
+                return;
+            }
+
+            addMessage('user', message, currentImageBase64 ? document.getElementById('previewImg').src : null);
             chatInput.value = '';
-            
-            // 创建流式消息容器
+
+            const imagePayload = currentImageBase64;
+            clearImage();
+
+            const requestBody = { message, mode: 'auto', session_id: sessionId, scene: currentScene };
+            if (imagePayload) { requestBody.image = imagePayload; }
+
             const streamId = createStreamingMessage();
             let fullText = '';
-            
+
             try {
                 const response = await fetch(`${API_BASE}/agent/stream`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                    body: JSON.stringify({ message, mode: 'auto', session_id: sessionId })
+                    body: JSON.stringify(requestBody)
                 });
-                
+
                 if (!response.ok) {
                     updateStreamingMessage(streamId, `抱歉，出错了: ${response.status}`);
-                    finalizeStreamingMessage(streamId);
+                    finalizeStreamingMessage(streamId, fullText);
                     return;
                 }
-                
-                // 读取 SSE 流
+
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
-                
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
-                    
                     buffer += decoder.decode(value, { stream: true });
-                    
-                    // 解析 SSE 事件
                     const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';  // 保留未完成的行
-                    
+                    buffer = lines.pop() || '';
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             try {
                                 const event = JSON.parse(line.slice(6));
                                 handleStreamEvent(event, streamId, (token) => { fullText += token; });
-                            } catch (e) {
-                                // 跳过解析失败的行
-                            }
+                            } catch (e) {}
                         }
                     }
                 }
-                
-                finalizeStreamingMessage(streamId);
-                
+                finalizeStreamingMessage(streamId, fullText);
             } catch (error) {
                 updateStreamingMessage(streamId, `抱歉，网络错误: ${error.message}`);
-                finalizeStreamingMessage(streamId);
+                finalizeStreamingMessage(streamId, fullText);
             }
         }
         
@@ -849,21 +1010,36 @@
             }
         }
         
-        // 完成流式消息（移除光标）
-        function finalizeStreamingMessage(id) {
+        // 完成流式消息（移除光标 + 渲染 + 加按钮）
+        function finalizeStreamingMessage(id, fullTextParam) {
             const element = document.getElementById(id);
             if (!element) return;
             const content = element.querySelector('.message-content');
             if (content) {
-                content.innerHTML = content.innerHTML.replace('▊', '');
+                lastAnswerText = fullTextParam || '';
+                renderMarkdown(content, fullTextParam || '');
+                addActionButtons(content, fullTextParam || '');
             }
         }
-        
+
         // 添加消息
-        function addMessage(role, content) {
+        function addMessage(role, content, imageUrl = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
-            messageDiv.innerHTML = `<div class="message-content">${formatContent(content)}</div>`;
+            const inner = document.createElement('div');
+            inner.className = 'message-content';
+            let displayContent = content;
+            if (imageUrl && role === 'user') {
+                displayContent = `<img src="${imageUrl}" class="msg-image">${content}`;
+            }
+            if (role === 'assistant') {
+                lastAnswerText = content;
+                renderMarkdown(inner, content);
+                addActionButtons(inner, content);
+            } else {
+                inner.innerHTML = formatContent(displayContent);
+            }
+            messageDiv.appendChild(inner);
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -954,7 +1130,7 @@
         
         // 删除单个文档
         async function deleteKbDocument(source) {
-            if (!confirm(`确定要删除 "${source}" 吗？`)) return;
+            if (!confirm(`⚠️ 不可恢复！\n\n确定要永久删除文档 "${source}" 吗？\n该操作无法撤销。`)) return;
             try {
                 const resp = await fetch(`${API_BASE}/kb/documents/${encodeURIComponent(source)}`, {
                     method: 'DELETE',
@@ -975,7 +1151,7 @@
         
         // 清空知识库
         async function clearKnowledgeBase() {
-            if (!confirm('确定要清空整个知识库吗？此操作不可撤销！')) return;
+            if (!confirm('⚠️ 不可恢复！\n\n确定要清空整个知识库吗？\n所有文档将被永久删除，此操作无法撤销！')) return;
             try {
                 const resp = await fetch(`${API_BASE}/rag/clear`, {
                     method: 'DELETE',
@@ -996,14 +1172,79 @@
             const el = document.getElementById(fileId);
             if (el) el.remove();
         }
-        
+
+        // ---- 图片上传 ----
+        let currentImageBase64 = null;
+        let currentImageMime = 'image/png';
+        function handleImageSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
+            currentImageMime = file.type;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImageBase64 = e.target.result.split(',')[1];
+                document.getElementById('previewImg').src = e.target.result;
+                document.getElementById('imagePreview').classList.add('show');
+                document.getElementById('imageBtn').classList.add('has-image');
+                document.getElementById('imageBtn').textContent = '🖼️✓';
+            };
+            reader.readAsDataURL(file);
+        }
+        function clearImage() {
+            currentImageBase64 = null;
+            document.getElementById('imagePreview').classList.remove('show');
+            document.getElementById('imageBtn').classList.remove('has-image');
+            document.getElementById('imageBtn').textContent = '🖼️';
+            document.getElementById('imageInput').value = '';
+        }
+
+        // ---- 场景切换 ----
+        let currentScene = 'balanced';
+        document.getElementById('sceneSelector').addEventListener('click', (e) => {
+            if (e.target.classList.contains('scene-btn')) {
+                document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                currentScene = e.target.dataset.scene;
+            }
+        });
+
+        // ---- 收藏 ----
+        async function deleteBookmark(id) {
+            try {
+                await fetch(`${API_BASE}/bookmark/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+                loadBookmarks();
+            } catch(e) {}
+        }
+
+        async function loadBookmarks() {
+            try {
+                const resp = await fetch(`${API_BASE}/bookmarks?limit=50`, { headers: getAuthHeaders() });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                window._bookmarkedAnswers = new Set((data.bookmarks || []).map(b => b.answer));
+                const panel = document.getElementById('bookmarksPanel');
+                if (!data.bookmarks || data.bookmarks.length === 0) {
+                    panel.innerHTML = '<div class="file-list-empty">暂无收藏</div>';
+                    return;
+                }
+                panel.innerHTML = data.bookmarks.map(b =>
+                    `<div class="bookmark-item" onclick="document.getElementById('chatInput').value='${b.question.replace(/'/g, "\\'").replace(/"/g, '&quot;')}'; document.getElementById('chatInput').focus()">
+                        <button class="bookmark-delete" onclick="event.stopPropagation();deleteBookmark(${b.id})" title="取消收藏">✕</button>
+                        <div class="bookmark-question">${b.question.substring(0, 60)}</div>
+                        <div class="bookmark-answer">${b.answer.substring(0, 80)}</div>
+                        <div class="bookmark-tag">${b.created_at?.substring(0, 10) || ''}</div>
+                    </div>`).join('');
+            } catch(e) {}
+        }
+
         // 自动刷新统计 + 文档列表
         setInterval(loadStats, 10000);
         setInterval(loadKbDocuments, 15000);
         
         // 清空对话
         function clearChat() {
-            if (confirm('确定要清空所有对话记录吗？')) {
+            if (confirm('确定要清空所有对话记录吗？（不影响知识库数据）')) {
                 chatMessages.innerHTML = `
                     <div class="message assistant">
                         <div class="message-content">

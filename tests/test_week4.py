@@ -9,6 +9,15 @@ from reportlab.pdfgen import canvas
 BASE_URL = "http://localhost:8000"
 TEST_DATA = os.path.join(os.path.dirname(__file__), "data")
 
+def auth_headers():
+    try:
+        resp = requests.post(f"{BASE_URL}/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+        if resp.status_code == 200:
+            return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception:
+        pass
+    return {}
+
 def print_section(title):
     print("\n" + "="*60)
     print(f" {title}")
@@ -34,7 +43,7 @@ def test_upload_pdf():
     
     with open(pdf_file, "rb") as f:
         files = {"file": ("test.pdf", f, "application/pdf")}
-        resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files)
+        resp = requests.post(f"{BASE_URL}/api/rag/upload", files=files, headers=auth_headers())
     
     print(f"状态码: {resp.status_code}")
     if resp.status_code == 200:
@@ -50,7 +59,7 @@ def test_search():
     
     queries = ["Docker", "容器", "虚拟化"]
     for q in queries:
-        resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": q, "top_k": 2})
+        resp = requests.get(f"{BASE_URL}/api/rag/search", params={"q": q, "top_k": 2}, headers=auth_headers())
         if resp.status_code == 200:
             data = resp.json()
             print(f"\n搜索: {q}")
@@ -93,7 +102,7 @@ def test_chat():
     
     for msg in messages:
         print(f"\n用户: {msg}")
-        resp = requests.post(f"{BASE_URL}/api/chat", json={"message": msg})
+        resp = requests.post(f"{BASE_URL}/api/chat", json={"message": msg}, headers=auth_headers())
         if resp.status_code == 200:
             data = resp.json()
             print(f"AI: {data['reply'][:150]}...")
