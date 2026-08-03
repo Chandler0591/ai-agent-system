@@ -11,7 +11,7 @@ RUN if [ "$USE_MIRROR" = "true" ]; then \
 
 # 安装系统依赖（含时区）
 RUN apt-get update && apt-get install -y \
-    gcc \
+    gcc g++ cmake \
     libpq-dev \
     tzdata \
     tesseract-ocr \
