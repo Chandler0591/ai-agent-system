@@ -13,7 +13,7 @@ class AIAgentUser(HttpUser):
         try:
             resp = self.client.post(
                 "/api/token",
-                data={"username": "testuser", "password": "testpass"}
+                data={"username": "admin", "password": "admin123", "tenant_id": "default"}
             )
             if resp.ok:
                 self.token = resp.json()["access_token"]
@@ -99,16 +99,26 @@ class ReadOnlyUser(HttpUser):
     """只读用户 —— 模拟文档浏览者"""
     wait_time = between(2, 5)
 
+    def on_start(self):
+        try:
+            resp = self.client.post("/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+            if resp.ok:
+                self.headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+            else:
+                self.headers = {}
+        except Exception:
+            self.headers = {}
+
     @task(5)
     def browse_docs(self):
-        self.client.get("/api/kb/documents")
+        self.client.get("/api/kb/documents", headers=getattr(self, 'headers', {}))
 
     @task(3)
     def search(self):
         queries = ["卡口", "车牌识别", "人工智能", "数据分析", "系统架构"]
         import random
         q = random.choice(queries)
-        self.client.get(f"/api/rag/search?q={q}&top_k=3")
+        self.client.get(f"/api/rag/search?q={q}&top_k=3", headers=getattr(self, 'headers', {}))
 
     @task(2)
     def stats(self):
@@ -118,6 +128,16 @@ class ReadOnlyUser(HttpUser):
 class HeavyUser(HttpUser):
     """重度用户 —— 频繁 Agent 调用"""
     wait_time = between(0.5, 1.5)
+
+    def on_start(self):
+        try:
+            resp = self.client.post("/api/token", data={"username": "admin", "password": "admin123", "tenant_id": "default"})
+            if resp.ok:
+                self.headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+            else:
+                self.headers = {}
+        except Exception:
+            self.headers = {}
 
     @task(5)
     def heavy_chat(self):
@@ -133,5 +153,6 @@ class HeavyUser(HttpUser):
         self.client.post(
             "/api/agent/run",
             json={"message": q, "mode": "auto"},
+            headers=self.headers,
             timeout=60,
         )
