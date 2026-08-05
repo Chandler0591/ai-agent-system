@@ -1,497 +1,163 @@
-# 🏢 一站式智能 AI Agent 系统 (企业版 v2.2)
+# 🏭 AI 调度仿真系统
 
-基于 **FastAPI + RAG 检索增强生成 + LangGraph** 搭建的一站式智能 AI Agent 系统。集成知识库问答、工具调用、多轮对话、工作流编排、质量评估、JWT 认证、多租户隔离（用户-租户 RBAC）、多 Agent 协作、Prometheus 监控等企业级能力，支持本地运行与 Docker 全栈容器化部署。
+> **[ai-agent-system](https://github.com/Chandler0591/ai-agent-system)** 仿真模块 | `feature/simulation` 分支
 
----
-
-##  目录
-- [核心功能](#-核心功能)
-- [技术架构](#-技术架构)
-- [快速开始](#-快速开始)
-- [项目结构](#-项目结构)
-- [核心模块说明](#-核心模块说明)
-- [API 文档](#-api-文档)
-- [开发进度](#-开发进度)
-- [常见问题](#-常见问题)
+基于 **PyBullet + FastAPI + LangGraph Agent** 的仓库调度仿真系统。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
 
 ---
 
-## 核心功能
+## 🎯 核心功能
 
-系统覆盖 LLM 调用、工具智能编排、RAG 高质量问答、多轮对话、Agent 工作流全场景，核心能力如下：
-
-- **基础服务能力**：FastAPI 高性能接口、日志管理、环境配置、Docker 容器化部署
-- **企业安全**：JWT 认证鉴权、API 限流保护、多租户 RBAC（用户-租户关联 + 知识库隔离 + 默认共享租户）
-- **通用工具调用**：内置天气查询、数学计算等工具，支持多工具协同调用
-- **企业级 RAG 知识库**：PDF 上传解析、智能分块、向量化存储、多路检索、结果优化
-- **高质量检索体系**：向量检索 + BM25 混合检索、Cross-Encoder 重排、MMR 多样性去重、HyDE 语义增强、Redis 缓存加速
-- **高级 RAG 技术**：父文档检索、自查询检索（LLM 自动提取过滤条件）、多模态 OCR、RAGAS 质量评估
-- **多轮对话系统**：会话管理、上下文记忆、对话压缩、历史记录持久化
-- **智能 Agent 编排**：基于 LangGraph 状态机，实现多步骤推理、任务编排、可观测工作流
-- **多 Agent 协作**：Supervisor 调度模式（Researcher + Analyst + Executor），Human-in-the-loop 审批
-- **异步任务**：Celery 任务队列 + Flower 监控面板，PDF 处理异步化、自动重试
-- **量化评估体系**：支持 HitRate、MRR、NDCG 等检索指标评估；RAGAS 上下文相关性/忠实度/回答相关性
-- **数据脱敏**：正则匹配 + 智能掩码引擎，支持手机号/身份证/邮箱/金额/银行卡号脱敏，规则从 PostgreSQL 热加载
-- **审计日志**：全链路操作审计（登录/登出/上传/搜索/删除/对话/Agent），数据库不可用时静默降级
-- **通知推送**：钉钉机器人 + 企业微信机器人 Webhook 推送，支持多渠道同时通知
-- **结果导出**：Markdown 智能转换为 Word (.docx) / Excel (.xlsx)，保留标题、列表、表格格式
-- **图片对话**：支持图片上传 + 多模态视觉模型（GPT-4o/Qwen-VL/GLM-4V）描述 + OCR 文字提取，前端两个面板均支持
-- **场景化回答**：三种模式（🎯精准/⚖️平衡/🎨创意），自动调整 temperature 和系统提示词
-- **安全约束层**：内置 7 条安全规则自动注入每次 LLM 调用，防违规输出、防系统泄露
-- **会话收藏**：⭐ 一键收藏优质回答，侧边栏收藏列表，支持点击复用
-- **可观测性**：Prometheus 指标暴露、Grafana 可视化仪表盘、结构化日志
-- **可视化交互**：内置 Web 前端界面（支持租户登录/知识库管理）+ Streamlit 企业面板（4模式：Chat/KB搜索/多Agent/RAGAS评估）
-- **🏭 AI 调度仿真**：PyBullet 物理引擎驱动的 10m×10m 仓库仿真，AGV 创建/移动/障碍检测，Agent 自然语言 → 工具调用 → 仿真执行闭环
-- **压力测试**：Locust 多用户画像压测脚本
-
-### 🖥️ 双前端 + 仿真控制台
-
-系统提供三个前端入口，各司其职：
-
-| 维度 | Web 前端 (index.html) | Streamlit 面板 | 🏭 仿真控制台 (sim.html) |
-|------|----------------------|----------------|--------------------------|
-| **定位** | 操作面板 — 高频交互 | 管理面板 — 深度功能 | 仿真控制台 — AI 调度 |
-| **技术栈** | HTML + Vanilla JS | Python + Streamlit | HTML + Canvas 2D |
-| **核心能力** | 对话、收藏、复制、场景切换、图片上传、导出 | 多Agent协作、RAGAS评估、知识库搜索 | 仓库2D俯瞰、AGV创建/移动/区域调度、AI自然语言控制 |
-| **仿真可视化** | ❌ | ❌ | ✅ Canvas 实时渲染（货架/区域/AGV朝向） |
-| **Agent 调度** | ❌ | ❌ | ✅ "把小车移到B区" → Agent工具调用 → 仿真执行 |
-| **手动控制** | ❌ | ❌ | ✅ 点击选中小车 + 按钮移动/区域跳转 |
-
-> **设计原则**：index.html 负责知识库即时交互，streamlit 负责复杂流程，sim.html 负责仿真可视化与 AI 调度。三者共享同一套后端 API，功能互补。
-
----
-
-##  技术架构
-
-采用分层解耦架构，从上至下分为前端交互层、API 服务层、核心业务层、数据存储层，模块独立可插拔，易于扩展迭代。
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  负载均衡 / API Gateway（限流 / 认证）                       │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  前端界面层 (Web 可视化页面 + Streamlit 企业面板)            │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  FastAPI 后端服务层（统一接口、路由、异常处理、中间件）        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
-│  │ JWT 认证 │ │ API 限流 │ │ 多租户   │ │ Prometheus   │   │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │
-├─────────────────────────────────────────────────────────────┤
-│  核心业务模块层                                              │
-│  ┌─────────────┐ ┌──────────┐ ┌────────────┐ ┌──────────┐  │
-│  │统一Agent入口│ │RAG V2链路│ │多Agent编排 │ │会话管理  │  │
-│  └──────┬──────┘ └────┬─────┘ └─────┬──────┘ └────┬─────┘  │
-│         │              │             │              │        │
-│  ┌──────▼──────────────▼─────────────▼──────────────▼─────┐  │
-│  │ LLM 通用客户端（DeepSeek/OpenAI 兼容）                 │  │
-│  └──────────────────────┬─────────────────────────────────┘  │
-│         │                │                │                  │
-│  ┌──────▼──────┐ ┌──────▼──────┐ ┌───────▼──────────┐      │
-│  │ 工具调用集   │ │ 向量检索引擎│ │ 异步任务(Celery) │      │
-│  └─────────────┘ └─────────────┘ └──────────────────┘      │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  数据存储层                                                  │
-│  ChromaDB(向量) / Redis(缓存+队列) / PostgreSQL(租户/用户/会话) │
-│  Prometheus(监控) / Grafana(仪表盘) / Flower(任务面板)      │
-└─────────────────────────────────────────────────────────────┘
+```
+用户: "把小车 agv_1 移到 B 区"
+  ↓
+Agent 🧠: 理解意图 → 调用 move_robot("agv_1", zone="B")
+  ↓
+仿真引擎 ⚙️: 物理计算 → AGV 移动到 (-2.5, 2.5)
+  ↓
+前端 🗺️: Canvas 2D 实时刷新，小车三角指向 B 区
 ```
 
+| 能力 | 实现 |
+|------|------|
+| 物理引擎 | PyBullet DIRECT/GUI 双模式，重力 + 碰撞检测 |
+| AGV 管理 | 创建/删除/移动/速度控制，支持 yaw 初始朝向 |
+| 场景感知 | 激光雷达模拟 (rayTest)、距离计算、区域判定 |
+| REST API | 12 个端点，FastAPI 自动生成 `/docs` |
+| Agent 工具 | move_robot / get_robot_status / check_obstacle |
+| 可视化 | Canvas 2D 俯瞰（货架/区域/AGV朝向），3秒轮询 |
+
 ---
 
-##  快速开始
+## 🗺️ 仿真场景
 
-### 环境要求
-- Python 3.11+
-- 可选：Docker & Docker Compose（容器部署）
+```
+        北 ↑
+    ┌──────────────────────────┐
+    │  🟦 B区 (-3.7~-1.3, 1.3~3.7)   🟢 A区 (1.3~3.7, 1.3~3.7) │
+    │                              │
+    │    🟫 shelf_1     🟫 shelf_0  │
+    │    (-3.8~-2.2)    (2.2~3.8)   │  ← 货架 (1.6m×0.6m×2m)
+    │                              │
+    │         ╋ 走道 (十字)          │
+    │                              │
+    │    🟫 shelf_3     🟫 shelf_2  │
+    │                              │
+    │  🟣 C区              🟠 D区   │
+    └──────────────────────────┘
+        南 ↓
+```
 
-### 本地开发运行
+- **仓库**: 10m × 10m
+- **货架**: 4 个静态障碍体（有碰撞）
+- **区域**: A/B/C/D 四个 2.4m×2.4m 目标区（无碰撞）
+- **AGV**: 盒体 + 4 轮子，1kg，颜色可配
+
+---
+
+## 🚀 快速开始
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/yourname/ai-agent-system.git
-cd ai-agent-system
+# Docker 启动（推荐）
+docker compose up -d api
 
-# 2. 创建并激活虚拟环境
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+# 创建 AGV
+curl -s -X POST "http://localhost:8000/api/sim/robot/create?robot_id=agv_1&x=0&y=0&color=blue"
 
-# 3. 安装项目依赖
-pip install -r requirements.txt
+# 移动到 B 区
+curl -s -X POST "http://localhost:8000/api/sim/robot/agv_1/move-by-zone?zone=B"
 
-# 4. 配置环境变量
-cp .env.example .env
-# 编辑 .env 文件，填入你的 LLM_API_KEY 等密钥
-
-# 5. 启动项目服务
-python run.py
-
-# 6. 初始化数据库（租户/用户种子数据）
-python scripts/init_db.py
-
-# 7. 访问服务
-# 前端可视化页面：http://localhost:8000
-# 自动生成 API 文档：http://localhost:8000/docs
+# Agent 自然语言控制
+curl -s -X POST "http://localhost:8000/api/agent/run" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"message":"把小车 agv_1 移到 C 区","mode":"auto"}'
 ```
 
-### Docker 全栈容器部署
+**本地 GUI 可视化**（WSL/Win11 直接跑）：
 
 ```bash
-# 1. 配置环境变量
-cp .env.example .env
-# 编辑 .env 配置 LLM_API_KEY、数据库连接等
-
-# 2. 一键启动所有服务（9容器）
-bash scripts/start_all.sh
-
-# 或手动启动核心服务
-# docker compose up -d redis postgres api celery-worker celery-beat
-
-# 3. 初始化数据库（种子租户/用户）
-docker compose exec api python scripts/init_db.py
-
-# 4. 查看运行日志
-docker compose logs -f api
-
-# 5. 停止服务
-docker compose down
-```
-
-### 服务端口一览
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| FastAPI | 8000 | 主 API 服务 + Web 前端 |
-| Streamlit | 8501 | 企业级前端面板 |
-| Flower | 5555 | Celery 任务监控 |
-| Prometheus | 9090 | 指标收集 |
-| Grafana | 3000 | 可视化仪表盘 |
-| Redis | 6379 | 缓存 + 消息队列 |
-| PostgreSQL | 5432 | 会话/租户持久化 |
-
-### 模型本地离线下载
-
-项目支持本地模型离线部署，规避境外网络访问失败、网页解析异常、在线模型加载超时等问题，通过专属脚本一键下载所需向量、重排模型至本地，实现完全离线推理。
-
-```bash
-# 执行模型批量下载脚本
-python scripts/download_model.py
-```
-
-**脚本功能说明：**
-- 自动下载项目依赖的 Embedding 向量化模型、Cross-Encoder 重排模型
-- 默认保存至项目本地模型目录，全局复用，无需重复联网加载
-- 规避 GitHub、境外模型源访问失败、解析失败等网络问题
-- 下载完成后自动配置本地模型加载路径，服务启动优先读取本地模型
-
-> **注意事项**：首次下载需保证网络通畅，模型文件较大请耐心等待；下载完成后可完全离线运行项目，不受外网限制。
-
----
-
-##  项目结构
-
-```text
-ai-agent-system/
-├── app/                        # 核心业务代码目录
-│   ├── main.py                 # FastAPI 服务入口（企业版 v2.2）
-│   ├── config.py               # 全局配置管理（12-Factor）
-│   ├── logger.py               # 统一日志工具
-│   ├── models.py               # 通用数据模型
-│   │
-│   ├── llm_client.py           # LLM 大模型客户端
-│   ├── tools.py                # 智能工具调用集
-│   ├── agent_unified.py        # Agent 统一入口（双引擎路由+回退）
-│   │
-│   ├── embeddings.py           # 文本向量化模型
-│   ├── vector_store.py         # ChromaDB 向量库管理
-│   ├── document_processor.py   # PDF 文档解析与分块
-│   ├── knowledge_base.py       # 知识库核心管理
-│   ├── rag_chain.py            # RAG 问答（简化版，向后兼容）
-│   ├── rag_chain_v2.py         # RAG V2 增强链路（HyDE+混合检索+重排+MMR）
-│   │
-│   ├── hybrid_search.py        # BM25+向量混合检索
-│   ├── reranker.py             # 结果重排、MMR 多样性筛选
-│   ├── hyde.py                 # HyDE 语义查询增强
-│   ├── cache_manager.py        # Redis 缓存管理
-│   ├── desensitizer.py         # 数据脱敏引擎
-│   ├── exporter.py             # 结果导出（Word/Excel）
-│   ├── notifier.py             # 通知推送（钉钉/企微）
-│   │
-│   ├── sim_api.py              #   [新] 仿真 REST API（12个端点）
-│   ├── sim_engine.py           #   [新] PyBullet 仿真引擎
-│   ├── session_manager.py      # 会话管理（Redis+内存双模式）
-│   ├── context_compressor.py   # 上下文压缩优化
-│   ├── task_manager.py         # 异步任务管理（内存模式）
-│   │
-│   ├── evaluator.py            # RAG 质量评估（HitRate/MRR/NDCG）
-│   ├── langgraph_agent.py      # LangGraph 工作流 Agent
-│   │
-│   ├── advanced_rag.py         # [新] 高级RAG（父文档/自查询/多模态/RAGAS）
-│   ├── multi_agent.py          # [新] 多Agent协作（Supervisor模式）
-│   ├── workflow_tracker.py     # [新] 工作流追踪+重试+可视化
-│   ├── monitoring.py           # [新] Prometheus 监控指标
-│   ├── celery_app.py           # [新] Celery 异步任务实例
-│   ├── tasks.py                # [新] Celery 任务定义（PDF处理/清理）
-│   ├── database.py             # [新] PostgreSQL 数据库管理
-│   │
-│   └── middleware/             # [新] 企业中间件
-│       ├── audit.py            #   审计日志
-│       ├── auth.py             #   JWT 认证鉴权
-│       ├── rate_limit.py       #   API 限流
-│       └── tenant.py           #   多租户隔离
-│
-├── web/                        # 前端静态资源
-│   ├── index.html              #   可视化问答页面
-│   ├── sim.html                #   [新] AI 调度仿真控制台
-│   └── streamlit_app.py        #   [新] Streamlit 企业面板
-│
-├── scripts/                    # [新] 运维脚本
-│   ├── start_all.sh            #   一键启动全栈服务
-│   ├── init_db.py              #   数据库初始化
-│   ├── download_model.py       #   模型下载
-│   └── txt2pdf.py              #   txt转PDF工具
-│
-├── tests/                      # [新] 测试脚本
-│   ├── data/
-│   │   ├── test.pdf            #   测试用PDF
-│   │   └── test.txt            #   测试用文本
-│   ├── test_smoke.py           #   端到端冒烟测试
-│   ├── locustfile.py           #   Locust 压力测试
-│   └── test_week*.py           #   各阶段验收测试
-│
-├── docker-compose.yml          # 容器编排配置（9容器）
-├── Dockerfile                  # 项目镜像构建配置
-├── prometheus.yml              # [新] Prometheus 采集配置
-├── requirements.txt            # 依赖清单
-├── run.py                      # 项目启动入口
-├── .env.example                # 环境变量模板
-└── README.md                   # 项目说明文档
+SIM_MODE=gui python3 scripts/sim_demo.py
+# 左键拖拽旋转 | 滚轮缩放 | Ctrl+左键平移
 ```
 
 ---
 
-## 核心模块说明
+## 📡 API 端点
 
-- **统一 Agent 入口**：`agent_unified.py` — 双引擎自动路由 + 回退：知识库中/高相关 → HyDE+RAG V2；低/弱相关 → LangGraph Agent（原生 function calling）；RAG 无结果 → 自动回退 Agent
-- **RAG V2 增强链路**：`rag_chain_v2.py` — HyDE 假设文档嵌入 + 混合检索（向量+BM25+RRF融合）+ CrossEncoder 重排 + MMR 多样性去重 + Redis 缓存
-- **高级 RAG**：`advanced_rag.py` — 父文档检索（小chunk检索→大chunk返回）、自查询检索（LLM提取过滤条件）、多模态 OCR、RAGAS 评估
-- **LangGraph Agent**：`langgraph_agent.py` — 状态图驱动（think → execute_tool → reflect），原生 function calling，节点级可观测
-- **多 Agent 编排**：`multi_agent.py` — Supervisor 调度模式（Researcher+Analyst+Executor），Human-in-the-loop 人工审批
-- **混合检索模块**：BM25 关键词检索 + 向量语义检索双路召回，RRF 融合排序，索引自动缓存
-- **重排序模块**：优先 CrossEncoder 交叉编码器精准打分，回退 BiEncoder 二次相似度
-- **企业中间件**：`middleware/auth.py` JWT 认证 + 登出废止、`middleware/rate_limit.py` 滑动窗口限流（/api/task/ 白名单）、`middleware/tenant.py` 多租户隔离
-- **数据库**：`database.py` PostgreSQL 8 表（tenants, users, user_tenants, sessions, tasks, desensitize_rules, audit_logs, bookmarks），含连接池 + 重试机制
-- **异步任务**：`tasks.py` Celery 任务队列（PDF 处理+自动重试）、Flower 监控面板
-- **监控**：`monitoring.py` Prometheus 指标（QPS/延迟/工具调用/LLM Token）、Grafana 仪表盘
-- **会话管理**：Redis / 内存双模式，历史消息、上下文自动压缩
-- **数据脱敏**：`desensitizer.py` — 单例脱敏引擎，正则匹配（手机/身份证/邮箱/金额/银行卡号），从 PostgreSQL 热加载规则，支持 `mask()` / `is_sensitive()` 检测
-- **审计日志**：`middleware/audit.py` — 全链路操作审计（login/logout/upload/search/delete/chat/agent），静默降级不影响业务
-- **通知推送**：`notifier.py` — 钉钉/企业微信 Webhook 机器人，`send_dingtalk()` / `send_wecom()` / `notify()` 三合一推送
-- **结果导出**：`exporter.py` — Markdown → Word (.docx) 保留标题/列表/表格；Markdown → Excel (.xlsx) 提取表格数据
-
----
-
-## API 文档
-
-项目基于 FastAPI 自动生成交互式接口文档，服务启动后可直接访问：
-
-- **Swagger 文档**：[http://localhost:8000/docs](http://localhost:8000/docs)
-- 支持接口在线调试、参数查看、返回示例展示
-
-### 企业级新增端点
+### 场景
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/tenants` | 获取可用租户列表 |
-| POST | `/api/token` | JWT 登录获取令牌（需 tenant_id） |
-| POST | `/api/revoke` | 登出废止 Token |
-| GET | `/api/me` | 获取当前用户信息（需认证） |
-| GET | `/api/kb/documents` | 知识库文档列表（租户隔离） |
-| DELETE | `/api/kb/documents/{name}` | 删除指定文档（租户隔离） |
-| GET | `/api/live` | Kubernetes Liveness 探针 |
-| GET | `/api/ready` | Kubernetes Readiness 探针（含依赖检查） |
-| GET | `/api/agent/mode` | Agent 模式切换（auto/rag/agent） |
-| GET | `/api/agent/status` | Agent 状态查询（工具列表、引擎状态） |
-| POST | `/api/export` | 回答导出（Word/Excel） |
-| POST | `/api/bookmark` | 收藏一条回答 |
-| POST | `/api/bookmark/toggle` | 切换收藏状态（收藏⇄取消） |
-| GET | `/api/bookmarks` | 获取收藏列表 |
-| DELETE | `/api/bookmark/{id}` | 删除收藏 |
-| GET | `/api/metrics` | Prometheus 指标 |
-| POST | `/api/multi-agent/run` | 多 Agent 协作 |
-| POST | `/api/rag/evaluate` | RAGAS 质量评估 |
+| GET | `/api/sim/status` | 仓库场景 + 所有机器人 |
+| POST | `/api/sim/reset` | 重置（清空AGV，保留场景） |
+| GET | `/api/sim/zones` | 区域定义 |
 
-### 🏭 仿真 API 端点
+### 机器人
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/sim/status` | 仓库场景总览 + 所有机器人状态 |
 | POST | `/api/sim/robot/create` | 创建 AGV（robot_id/x/y/yaw/color） |
-| DELETE | `/api/sim/robot/{id}` | 删除指定 AGV |
-| POST | `/api/sim/robot/{id}/move` | 移动 AGV 到坐标（x, y） |
-| POST | `/api/sim/robot/{id}/move-by-zone` | 移动 AGV 到区域（A/B/C/D） |
-| POST | `/api/sim/robot/{id}/velocity` | 速度控制 AGV（vx, vy, duration） |
-| GET | `/api/sim/robot/{id}` | 查询单机器人状态 |
+| DELETE | `/api/sim/robot/{id}` | 删除 AGV |
+| GET | `/api/sim/robot/{id}` | 查询单机器人（位置/朝向/区域） |
 | GET | `/api/sim/robots` | 列出所有机器人 |
-| GET | `/api/sim/robot/{id}/distance` | 计算到目标点距离 |
-| GET | `/api/sim/robot/{id}/obstacle` | 激光雷达模拟障碍检测 |
-| POST | `/api/sim/reset` | 重置仿真场景 |
-| GET | `/api/sim/zones` | 区域定义查询 |
 
-### 生产模式认证
+### 控制
 
-设置 `ENV=production` 后，登录需通过数据库验证（users + user_tenants 表），支持 RBAC 租户权限控制。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/sim/robot/{id}/move` | 移动到坐标（自动对齐朝向） |
+| POST | `/api/sim/robot/{id}/move-by-zone` | 移动到区域 A/B/C/D |
+| POST | `/api/sim/robot/{id}/velocity` | 速度控制（vx/vy/duration） |
 
-| 用户 | 密码 | 租户 | 角色 |
-|------|------|------|------|
-| admin | admin123 | default（共享） | admin |
-| demo1 | demo1123 | demo1 | user |
-| demo2 | demo2123 | demo2 | user |
+### 传感器
 
-- `default` 租户为共享知识库，其他租户均可检索其文档
-- 各租户私有文档互不可见
-- 开发模式（`ENV=development`）任意用户名密码均可登录
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/sim/robot/{id}/distance` | 到目标点距离 |
+| GET | `/api/sim/robot/{id}/obstacle` | 激光雷达（forward/left/right/back） |
+
+> 完整 API 文档：`http://localhost:8000/docs`
 
 ---
 
-## 开发进度
+## 🖥️ 前端控制台
 
-### ✅ v1.0 已完成
-- FastAPI 基础服务、日志、配置、容器化部署
-- LLM 多模型适配、通用客户端封装（DeepSeek）
-- PDF 解析、智能分块、向量入库
-- 混合检索（向量+BM25+RRF）、CrossEncoder 重排、MMR 去重
-- HyDE 语义增强、Redis 缓存
-- 多轮对话、会话管理（Redis+内存双模式）、上下文压缩
-- LangGraph Agent（think→execute_tool→reflect）+ 原生 function calling
-- 统一 Agent 双引擎路由 + RAG→Agent 回退
-- 量化评估（HitRate/MRR/NDCG，基于真实检索）
-- Web 可视化前端
+浏览器打开 `http://localhost:8000/sim.html`：
 
-### ✅ v2.0 企业级升级
-- JWT 认证鉴权 + Token 黑名单
-- API 滑动窗口限流
-- 多租户数据隔离（ContextVar）
-- Celery 异步任务队列 + Flower 监控
-- PostgreSQL 数据库（会话/租户/任务持久化）
-- 高级 RAG：父文档检索、自查询检索、多模态 OCR、RAGAS 评估
-- 多 Agent 协作：Supervisor 模式 + Human-in-the-loop
-- 工作流追踪：步骤计时 + 指数退避重试 + DOT 可视化
-- Prometheus 指标 + Grafana 仪表盘
-- Streamlit 企业前端（4模式）
-- Locust 压力测试（3种用户画像）
-- 9容器 Docker Compose 全栈部署
-
-### ✅ v2.1 生产就绪
-- JWT 认证 + Token 黑名单 + 登出废止
-- 多租户 RBAC（users + user_tenants 表，租户权限控制）
-- 默认共享租户（default 文档对所有租户可见）
-- Web 前端登录（用户名/密码/租户选择）
-- 知识库上传 / 检索 / 文档列表全链路租户隔离
-- 同名文件覆盖上传（?force=true）
-- 容器时区统一 Asia/Shanghai
-- API 限流白名单（/api/task/ 轮询不限流）
-- 20 项冒烟测试（含生产认证 + 租户隔离）
-
-### ✅ v2.2 体验增强 + 安全加固
-- **数据脱敏引擎**：手机号/身份证/邮箱/金额/银行卡号，DB 热加载规则
-- **全链路审计日志**：login/logout/upload/search/delete/chat/agent，PG 不可用时降级
-- **通知推送**：钉钉 + 企业微信 Webhook，`NOTIFY_ENABLED` 开关控制
-- **结果导出**：Markdown → Word (.docx) / Excel (.xlsx)，含表格的对话自动显示 📊 按钮
-- **Kubernetes 健康探针**：`/api/live` + `/api/ready`（含 ChromaDB/Redis/LLM 依赖检查）
-- **多模态图片对话**：图片上传 + 视觉模型描述（GPT-4o/Qwen-VL/GLM-4V）+ OCR 降级
-- **Temperature 场景化**：🎯精准 / ⚖️平衡 / 🎨创意 三种模式，自动调整 temperature + 提示词
-- **System Prompt 安全约束**：7 条规则自动注入每次 LLM 调用，防违规输出和系统泄露
-- **会话收藏**：⭐ 一键收藏回答，侧边栏列表管理，支持点击复用 + ✕ 取消，租户/用户隔离
-- **max_tokens / top_p 可控**：用户自定义输出长度与发散度，API 参数透传
-- **接口认证加固**：核心接口（chat/agent/upload/export）全部 `get_current_user`，未登录返回 401
-- **前端登录拦截**：未登录时 index.html 提示"请先登录"，streamlit `st.stop()` 阻断操作
-- **危险操作确认**：清空知识库/删除文档弹出"不可恢复"警告
-- **双前端架构**：操作面板（index.html，毫秒级交互） + 管理面板（streamlit，多Agent/评估/监控）
-- **容器安全策略**：非 root 用户/只读文件系统/Cap 裁剪等加固措施移至「大型企业升级路径」，生产环境按需启用
-- **🏭 AI 调度仿真系统**：PyBullet 仓库仿真引擎 + 12 个 REST API + Agent 工具集成 + 2D 实时可视化控制台，实现"把小车移到B区"端到端闭环
-
-### 🔜 待完善
-- 模型性能压测与效果对比
-- Kubernetes Helm Chart 部署
-- Function Calling 提示词管理 
+- **🗺️ 2D 俯瞰**：Canvas 实时渲染（货架/区域/AGV 朝向三角）
+- **🤖 车队管理**：一键创建（顺序命名 agv_1/2/3...）、删除、选中
+- **🎮 手动控制**：坐标移动 / 区域跳转（A/B/C/D）
+- **🧠 AI 调度**：自然语言输入 → Agent 工具调用 → 仿真执行
 
 ---
 
-## 常见问题
+## 📁 文件结构
 
-1. **检索指标偏低**：优化文本分块大小与重叠度、调整混合检索权重、确认知识库已上传文档
-2. **接口响应慢**：首次检索包含 LLM 生成耗时；重复问题走 Redis 缓存秒级响应
-3. **LLM 调用失败**：检查 `.env` 中 `LLM_API_KEY` 是否正确、网络是否可达
-4. **模型加载失败**：确保已运行 `python scripts/download_model.py` 下载本地模型，或检查模型路径
-5. **LangGraph 启动报错**：如遇 `MemorySaver` 导入失败，项目已兼容 0.3.x 多版本路径
-6. **知识库检索为空**：确认已上传 PDF 文件，查看侧边栏文档数量是否 > 0
-7. **认证失败 401**：生产模式需正确密码（admin/admin123 等），开发模式任意密码通过
-8. **无权访问租户 403**：用户不属于该租户（通过 user_tenants 表控制）
-9. **429 限流**：默认每分钟 60 次请求，可在 `.env` 调整 `API_RATE_LIMIT`；`/api/task/` 内部轮询不限流
-10. **Celery Worker 未启动**：异步 PDF 处理需要 `celery -A app.celery_app worker`；开发环境自动回退到同步处理
-11. **冒烟测试**：运行 `python tests/test_smoke.py` 验证全链路（需服务已启动）
-12. **图片对话不可用**：检查 `.env` 中 `VISION_ENABLED=true` 且 `VISION_API_KEY` 已正确配置
-13. **场景切换不生效**：确保 `scene` 参数正确传递（precise/balanced/creative），可通过 `/docs` 调试
+```
+app/
+├── sim_engine.py    # PyBullet 仿真引擎（SimEngine 单例）
+├── sim_api.py       # FastAPI 路由（12 个端点）
+├── tools.py         # Agent 工具注册（3 个仿真工具）
+└── langgraph_agent.py  # Agent 工作流 + 提示词
+
+web/
+└── sim.html         # 仿真控制台（Canvas 2D + AI 调度）
+
+scripts/
+├── test_sim.py      # 4 项自动化验证
+└── sim_demo.py      # GUI 交互式演示
+```
 
 ---
 
-## 大型企业升级路径
+## 🔗 关联
 
-> 当前定位：**中小企业 / 部门级**企业平台（20-50并发，单实例）。以下为从部门级升级到集团级的备忘清单。
+本分支是 [ai-agent-system](https://github.com/Chandler0591/ai-agent-system)（企业级 AI Agent 平台）的仿真模块。主分支包含：
 
-### 🏗 架构层
+- 📄 知识库 RAG 问答（PDF 解析 + 混合检索 + 重排）
+- 🔐 企业安全（JWT 认证 + 多租户 RBAC + 限流）
+- 🤖 多 Agent 协作（Supervisor 模式 + LangGraph 工作流）
+- 📊 可观测性（Prometheus + Grafana + 审计日志）
 
-| 当前 | 目标 | 方案 |
-|------|------|------|
-| 单 uvicorn 进程 | Gunicorn 4-8 worker | `gunicorn -w 4 -k uvicorn.workers.UvicornWorker` |
-| 无反向代理 | Nginx 负载均衡 | 加 `nginx` 容器，`upstream` 指向多 api 实例 |
-| PG 连接池 max=10 | PgBouncer 连接池 | 加 `pgbouncer` 容器，减少 PG 连接开销 |
-| 单 PG 实例 | 主从 + 读写分离 | PG 流复制 + 应用层读写路由 |
-| 单 Redis | Sentinel / Cluster | 高可用 Redis 集群 |
-
-### 🔒 安全合规层
-
-| 当前 | 目标 | 方案 |
-|------|------|------|
-| root 运行容器 | 非 root 用户（uid=1001） | Dockerfile `USER appuser` |
-| 文件系统可写 | 只读根文件系统 | `read_only: true` + `tmpfs` 仅 /tmp 可写 |
-| 完整 Capabilities | 最小权限原则 | `cap_drop: ALL` + `cap_add: NET_BIND_SERVICE` |
-| JWT 无刷新 | OAuth2 + Refresh Token | 加 `/api/token/refresh` 端点 |
-| SHA256 密码 | bcrypt / argon2 | `passlib` 切换 hash 算法 |
-| 无 SSO | LDAP / OIDC / SAML | 集成 `python-ldap` 或 Keycloak |
-| 无传输加密 | TLS 1.3 | Nginx 反向代理挂载证书 |
-| 无等保材料 | 等保二级/三级 | 安全审计 + 渗透测试报告 |
-
-### 📊 可观测性层
-
-| 当前 | 目标 | 方案 |
-|------|------|------|
-| Prometheus 基础指标 | 业务指标（租户用量、Token 成本） | 扩展 `monitoring.py` 自定义 metrics |
-| 无告警 | Alertmanager 规则 | `alert_rules.yml`：QPS 异常、5xx 率过高 |
-| 无分布式追踪 | OpenTelemetry + Jaeger | 加 tracing 中间件，跨服务链路追踪 |
-| 结构化日志 | ELK / Loki 聚合 | 加 Filebeat/Fluentd 容器采集 |
-
-### 🚀 性能与体验
-
-| 当前 | 目标 | 方案 |
-|------|------|------|
-| 无 LLM 熔断 | 熔断器 | `tenacity` / `circuitbreaker` 装饰器 |
-| 无请求超时 | 统一超时中间件 | FastAPI `TimeoutMiddleware` |
-| 单语言 | i18n 国际化 | `gettext` + 翻译文件 |
-
-### 🏢 多租户商业化
-
-| 当前 | 目标 | 方案 |
-|------|------|------|
-| 3 个预置租户 | 自助注册 + 审批 | `/api/tenant/register` + 管理员审核 |
-| 固定配额 | 套餐制（免费/专业/企业） | `plans` 表 + 用量计费 |
-| 无计费 | Token/API 用量账单 | 月度统计 + 账单导出 |
-| 无自定义品牌 | 租户品牌定制 | `tenant_configs` 表（Logo/主题/域名） |
+> 切换到 `main` 分支查看完整项目：`git checkout main`
