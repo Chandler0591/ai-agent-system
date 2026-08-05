@@ -120,7 +120,7 @@ class SimEngine:
                 baseMass=0,  # 静态
                 baseCollisionShapeIndex=shelf_collision,
                 baseVisualShapeIndex=shelf_visual,
-                basePosition=[sx, sy, 0.5],
+                basePosition=[sx, sy, 1.0],  # 2m高货架，中心在z=1.0，底贴地面
             )
             self.obstacles[f"shelf_{i}"] = body_id
 
@@ -170,17 +170,18 @@ class SimEngine:
     # ========== 机器人管理 ==========
 
     def create_robot(self, robot_id: str, x: float = 0.0, y: float = 0.0,
-                     z: float = 0.1, color: str = None) -> Dict:
+                     z: float = 0.1, yaw: float = 0.0, color: str = None) -> Dict:
         """
         创建一台 AGV
 
         Args:
             robot_id: 唯一 ID（如 "agv_1"）
             x, y, z: 初始位置
+            yaw: 朝向角（度），0=东, 90=北, 180=西, 270=南
             color: red/blue/green/orange/purple，不传则自动分配
 
         Returns:
-            {"robot_id": "agv_1", "position": [x, y, z], "color": "blue"}
+            {"robot_id": "agv_1", "position": [x, y, z], "color": "blue", "yaw": 0}
         """
         if robot_id in self.robots:
             logger.warning(f"机器人 {robot_id} 已存在，返回现有实例")
@@ -196,7 +197,7 @@ class SimEngine:
             self._color_index += 1
 
         # 创建 AGV 模型（带"轮子"的方盒）
-        body_id = self._create_agv_body(x, y, z, rgba)
+        body_id = self._create_agv_body(x, y, z, yaw, rgba)
 
         self.robots[robot_id] = body_id
         self.robot_colors[robot_id] = rgba
@@ -209,10 +210,14 @@ class SimEngine:
             "robot_id": robot_id,
             "position": [x, y, z],
             "color": color,
+            "yaw": yaw,
         }
 
-    def _create_agv_body(self, x: float, y: float, z: float, rgba: list) -> int:
+    def _create_agv_body(self, x: float, y: float, z: float, yaw: float, rgba: list) -> int:
         """创建 AGV 物理模型（带 4 个轮子）"""
+        # 朝向（度 → 四元数）
+        orientation = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+
         # 车身
         body_visual = p.createVisualShape(
             shapeType=p.GEOM_BOX,
@@ -229,6 +234,7 @@ class SimEngine:
             baseCollisionShapeIndex=body_collision,
             baseVisualShapeIndex=body_visual,
             basePosition=[x, y, z + 0.12],
+            baseOrientation=orientation,
         )
 
         # 4 个轮子（圆柱体，固定关节）
@@ -282,17 +288,25 @@ class SimEngine:
             return {"error": f"机器人 {robot_id} 不存在"}
 
         body_id = self.robots[robot_id]
-        current_pos, _ = p.getBasePositionAndOrientation(body_id)
+        current_pos, current_ori = p.getBasePositionAndOrientation(body_id)
 
-        # 计算距离
+        # 计算距离和运动方向
         dx, dy = x - current_pos[0], y - current_pos[1]
         distance = math.sqrt(dx * dx + dy * dy)
 
-        # 瞬时传送（后续第 7 周改为路径规划 + 逐步移动）
+        # 朝向自动对齐运动方向（atan2(Δy, Δx) = 从东逆时针角度）
+        if distance > 0.001:
+            yaw = math.degrees(math.atan2(dy, dx))
+        else:
+            _, _, yaw = p.getEulerFromQuaternion(current_ori)
+            yaw = math.degrees(yaw)
+        target_ori = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+
+        # 瞬时传送（车头朝向运动方向）
         p.resetBasePositionAndOrientation(
             body_id,
             [x, y, current_pos[2]],
-            [0, 0, 0, 1],
+            target_ori,
         )
         self.step(5)
 

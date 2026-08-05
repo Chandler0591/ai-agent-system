@@ -593,9 +593,23 @@ web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
 # 注册 API 路由
 app.include_router(api_router)
 
+# 注册仿真路由（可选，pybullet 未安装时跳过）
+try:
+    from app.sim_api import sim_router
+    app.include_router(sim_router, prefix="/api")
+    logger.info("仿真 API 已注册")
+except ImportError:
+    logger.info("仿真模块未安装 (pybullet)，跳过 /api/sim 路由")
+except Exception as e:
+    logger.warning(f"仿真 API 注册失败: {e}")
+
 @app.get("/")
 async def serve_frontend():
     return FileResponse(os.path.join(web_dir, "index.html"))
+
+@app.get("/sim.html")
+async def serve_sim():
+    return FileResponse(os.path.join(web_dir, "sim.html"))
 
 if os.path.exists(web_dir):
     app.mount("/web", StaticFiles(directory=web_dir), name="web")

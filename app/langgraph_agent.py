@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 import json
 from datetime import datetime
 from app.config import config
-from app.tools import get_weather, calculator, get_time, search_knowledge_base, query_database
+from app.tools import get_weather, calculator, get_time, search_knowledge_base, query_database, move_robot, get_robot_status, check_obstacle
 from app.logger import logger
 from app.llm_client import llm_client
 
@@ -26,6 +26,9 @@ TOOL_FUNCTIONS = {
     "get_time": get_time,
     "search_knowledge_base": search_knowledge_base,
     "query_database": query_database,
+    "move_robot": move_robot,
+    "get_robot_status": get_robot_status,
+    "check_obstacle": check_obstacle,
 }
 
 def execute_tool(tool_name: str, tool_args: Dict) -> str:
@@ -49,7 +52,7 @@ def think_node(state: AgentState) -> AgentState:
     
     # 构建包含历史记录的完整消息列表
     llm_messages = [
-        {"role": "system", "content": "你是一个智能助手，可以调用工具来帮助用户。当需要查询天气、计算、或获取时间时，请调用对应工具。如果不需要工具，直接回复即可。"}
+        {"role": "system", "content": "你是一个智能助手，控制着仓库中的AGV小车。\n\n重要规则：\n- 用户说\"移动\"\"去\"\"到\"某个地方 → 必须调用 move_robot\n- 用户询问\"在哪\"\"位置\" → 调用 get_robot_status\n- 不要自作主张查询状态，按用户指令行事\n\n可用工具：\n- move_robot: 移动AGV小车（robot_id必填，zone指定A/B/C/D，或x,y指定坐标）\n- get_robot_status: 查询小车当前位置\n- check_obstacle: 检测前方障碍物\n- get_weather: 获取天气\n- calculator: 计算\n- get_time: 时间\n- search_knowledge_base: 搜索知识库"}
     ]
     # 添加最近10条历史消息（交替的 user/assistant 对话）
     for msg in messages[-10:]:
@@ -102,6 +105,52 @@ def think_node(state: AgentState) -> AgentState:
                     "type": "object",
                     "properties": {"query": {"type": "string", "description": "搜索关键词"}},
                     "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "move_robot",
+                "description": "移动仓库中的AGV小车到指定区域或坐标。区域可选A/B/C/D，也可以传x,y坐标",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "robot_id": {"type": "string", "description": "小车编号，如 agv_1"},
+                        "x": {"type": "number", "description": "目标X坐标"},
+                        "y": {"type": "number", "description": "目标Y坐标"},
+                        "zone": {"type": "string", "description": "目标区域 A/B/C/D（与坐标二选一）"}
+                    },
+                    "required": ["robot_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_robot_status",
+                "description": "查询AGV小车的当前位置、所在区域和朝向",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "robot_id": {"type": "string", "description": "小车编号，不传则返回所有小车"}
+                    },
+                    "required": []
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_obstacle",
+                "description": "检测AGV小车前方是否有障碍物（激光雷达模拟）",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "robot_id": {"type": "string", "description": "小车编号"},
+                        "direction": {"type": "string", "description": "检测方向 forward/left/right/back，默认forward"}
+                    },
+                    "required": ["robot_id"]
                 }
             }
         }

@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 调度仿真系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e; color: #e0e0e0; min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            padding: 10px 24px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #1a1a3e;
+        }
+        .header h1 { font-size: 18px; color: #e94560; }
+        .header-links { display: flex; gap: 12px; }
+        .header-links a {
+            color: #a0a0c0; text-decoration: none; font-size: 13px;
+            padding: 4px 12px; border-radius: 4px; transition: all 0.2s;
+        }
+        .header-links a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.online { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+        .status-dot.offline { background: #f44336; }
+
+        .main {
+            display: grid; grid-template-columns: 380px 1fr; gap: 16px;
+            padding: 16px; height: calc(100vh - 52px);
+        }
+
+        /* 左侧控制面板 */
+        .panel {
+            background: #16213e; border-radius: 12px; padding: 16px;
+            display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+        }
+        .panel-section { border-bottom: 1px solid #1a1a3e; padding-bottom: 12px; }
+        .panel-section:last-child { border-bottom: none; }
+        .panel-title {
+            font-size: 12px; color: #888; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 8px;
+        }
+
+        /* 机器人卡片 */
+        .robot-card {
+            background: #1a1a3e; border-radius: 8px; padding: 10px; margin-bottom: 6px;
+            display: flex; align-items: center; gap: 8px; font-size: 13px;
+            border-left: 3px solid #4caf50; transition: all 0.2s;
+        }
+        .robot-card:hover { background: #1f1f4a; }
+        .robot-dot {
+            width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+        }
+        .robot-info { flex: 1; min-width: 0; }
+        .robot-info .name { font-weight: 600; }
+        .robot-info .pos { font-size: 11px; color: #888; font-family: monospace; }
+        .robot-zone {
+            font-size: 11px; padding: 2px 6px; border-radius: 3px;
+            font-weight: 600;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer;
+            font-size: 12px; font-weight: 500; transition: all 0.2s;
+        }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-primary:hover { background: #d63850; }
+        .btn-secondary { background: #1a1a3e; color: #a0a0c0; border: 1px solid #2a2a5e; }
+        .btn-secondary:hover { background: #22224a; }
+        .btn-danger { background: transparent; color: #f44336; border: 1px solid #f44336; }
+        .btn-danger:hover { background: rgba(244,67,54,0.1); }
+        .btn-sm { padding: 3px 8px; font-size: 11px; }
+
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        /* 输入 */
+        input, select {
+            background: #1a1a3e; border: 1px solid #2a2a5e; border-radius: 6px;
+            padding: 6px 10px; color: #e0e0e0; font-size: 12px; outline: none;
+            width: 100%; margin-bottom: 4px;
+        }
+        input:focus, select:focus { border-color: #e94560; }
+        .input-row { display: flex; gap: 6px; }
+        .input-row input, .input-row select { width: auto; flex: 1; margin-bottom: 0; }
+
+        /* 画布 */
+        .canvas-wrapper {
+            background: #16213e; border-radius: 12px; padding: 12px;
+            display: flex; flex-direction: column;
+        }
+        .canvas-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; font-size: 13px; color: #888;
+        }
+        canvas {
+            flex: 1; border-radius: 8px; background: #0f0f23;
+            border: 1px solid #1a1a3e;
+        }
+
+        /* 聊天 */
+        .chat-wrapper {
+            background: #16213e; border-radius: 12px; padding: 12px;
+            display: flex; flex-direction: column; max-height: 200px;
+        }
+        .chat-header {
+            font-size: 12px; color: #888; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 8px;
+        }
+        .chat-msgs { flex: 1; overflow-y: auto; font-size: 12px; margin-bottom: 8px; min-height: 60px; }
+        .chat-msg { margin-bottom: 4px; padding: 4px 8px; border-radius: 4px; line-height: 1.4; }
+        .chat-msg.user { background: #1a1a3e; color: #e94560; }
+        .chat-msg.agent { background: #0f3460; color: #a0c0ff; }
+        .chat-input-row { display: flex; gap: 6px; }
+        .chat-input-row input { margin-bottom: 0; flex: 1; }
+
+        /* 快捷指令 */
+        .quick-cmds { display: flex; flex-wrap: wrap; gap: 4px; }
+        .quick-cmd {
+            font-size: 11px; padding: 3px 8px; border-radius: 12px; cursor: pointer;
+            background: #1a1a3e; border: 1px solid #2a2a5e; color: #a0a0c0;
+            transition: all 0.2s;
+        }
+        .quick-cmd:hover { border-color: #e94560; color: #e94560; }
+
+        /* Toast */
+        .toast {
+            position: fixed; top: 20px; right: 20px; z-index: 999;
+            padding: 10px 20px; border-radius: 8px; font-size: 13px;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.error { background: #f44336; color: #fff; }
+        .toast.info { background: #0f3460; color: #fff; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏭 AI 调度仿真系统</h1>
+        <div style="display:flex;align-items:center;gap:16px;">
+            <span style="font-size:12px;color:#888;">API: <span id="apiStatus">
+                <span class="status-dot offline"></span>检测中
+            </span></span>
+            <div class="header-links">
+                <a href="/">📄 知识库</a>
+                <a href="http://localhost:8501" target="_blank">📊 管理面板</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- 左侧面板 -->
+        <div class="panel">
+            <!-- 场景信息 -->
+            <div class="panel-section">
+                <div class="panel-title">📐 仓库场景</div>
+                <div id="sceneInfo" style="font-size:12px;color:#888;">加载中...</div>
+            </div>
+
+            <!-- 机器人列表 -->
+            <div class="panel-section">
+                <div class="panel-title">🤖 AGV 车队 <span id="robotCount" style="color:#e94560;">(0)</span></div>
+                <div id="robotList">
+                    <div style="font-size:12px;color:#555;">无AGV运行中</div>
+                </div>
+                <div class="btn-group" style="margin-top:8px;">
+                    <button class="btn btn-sm btn-secondary" onclick="quickCreate()">+ 快速创建</button>
+                    <button class="btn btn-sm btn-danger" onclick="resetAll()">重置场景</button>
+                </div>
+            </div>
+
+            <!-- 手动控制 -->
+            <div class="panel-section" id="ctrlSection" style="display:none;">
+                <div class="panel-title">🎮 手动控制 <span id="ctrlTarget" style="color:#e94560;"></span></div>
+                <div class="btn-group" style="margin-bottom:8px;">
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('A')">📍 A区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('B')">📍 B区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('C')">📍 C区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('D')">📍 D区</button>
+                </div>
+                <div class="input-row">
+                    <input id="moveX" type="number" placeholder="X" step="0.1" style="width:60px;">
+                    <input id="moveY" type="number" placeholder="Y" step="0.1" style="width:60px;">
+                    <button class="btn btn-sm btn-primary" onclick="moveToXY()">移动</button>
+                </div>
+            </div>
+
+            <!-- AI 调度 -->
+            <div class="panel-section">
+                <div class="panel-title">🧠 AI 调度指令</div>
+                <div class="quick-cmds" style="margin-bottom:6px;">
+                    <span class="quick-cmd" onclick="sendCmd('把 agv_1 移到 B 区')">去B区</span>
+                    <span class="quick-cmd" onclick="sendCmd('把 agv_1 移到 A 区')">去A区</span>
+                    <span class="quick-cmd" onclick="sendCmd('查看 agv_1 位置')">查位置</span>
+                    <span class="quick-cmd" onclick="sendCmd('检测 agv_1 前方障碍')">障碍检测</span>
+                </div>
+                <div class="chat-msgs" id="chatMsgs"></div>
+                <div class="chat-input-row">
+                    <input id="chatInput" type="text" placeholder="输入调度指令，如：把小车移到 C 区...">
+                    <button class="btn btn-primary" onclick="sendCmd()">发送</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧视图 -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="canvas-wrapper" style="flex:1;">
+                <div class="canvas-header">
+                    <span>🗺️ 2D 俯瞰视图</span>
+                    <span style="font-size:11px;color:#555;" id="fpsCounter"></span>
+                </div>
+                <canvas id="simCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8000/api';
+        let selectedRobot = null;
+        let simData = { scene: null, robots: [] };
+
+        // ========== 画布渲染 ==========
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            const wrapper = canvas.parentElement;
+            canvas.width = wrapper.clientWidth - 24;
+            canvas.height = wrapper.clientHeight - 40;
+            drawScene();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        function drawScene() {
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+
+            const margin = 40;
+            const size = Math.min(w, h) - margin * 2;
+            const scale = size / 10; // 10m warehouse
+            const ox = (w - size) / 2, oy = (h - size) / 2;
+
+            function toScreen(x, y) {
+                return [ox + (x + 5) * scale, oy + (5 - y) * scale]; // y flip
+            }
+
+            // 地面
+            ctx.fillStyle = '#1a1a3e';
+            ctx.fillRect(ox, oy, size, size);
+            ctx.strokeStyle = '#2a2a5e';
+            ctx.strokeRect(ox, oy, size, size);
+
+            // 网格
+            ctx.strokeStyle = '#1f1f40';
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i <= 10; i++) {
+                let [sx, sy] = toScreen(-5 + i, 5);
+                let [ex, ey] = toScreen(-5 + i, -5);
+                ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+                [sx, sy] = toScreen(-5, 5 - i);
+                [ex, ey] = toScreen(5, 5 - i);
+                ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+            }
+
+            // 方向标签
+            ctx.fillStyle = '#444';
+            ctx.font = '11px monospace';
+            ctx.fillText('东 →', ox + size - 30, oy + size / 2 + 4);
+            ctx.fillText('↑ 北', ox + size / 2 - 12, oy + 14);
+
+            // 区域标记
+            const zones = { A: [2.5,2.5,'rgba(76,175,80,0.15)'], B: [-2.5,2.5,'rgba(66,165,245,0.15)'],
+                            C: [-2.5,-2.5,'rgba(171,71,188,0.15)'], D: [2.5,-2.5,'rgba(255,152,0,0.15)'] };
+            for (const [name, [zx, zy, color]] of Object.entries(zones)) {
+                let [sx, sy] = toScreen(zx - 1.2, zy + 1.2);
+                let [ex, ey] = toScreen(zx + 1.2, zy - 1.2);
+                ctx.fillStyle = color;
+                ctx.fillRect(sx, sy, ex - sx, ey - sy);
+                ctx.fillStyle = color.replace('0.15', '0.4');
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(name, (sx + ex) / 2 - 6, (sy + ey) / 2 + 4);
+            }
+
+            // 货架
+            const shelves = [[3,0],[-3,0],[0,3],[0,-3]];
+            ctx.fillStyle = '#5c3a1e';
+            for (const [sx, sy] of shelves) {
+                let [px, py] = toScreen(sx - 0.8, sy + 0.3);
+                let [px2, py2] = toScreen(sx + 0.8, sy - 0.3);
+                ctx.fillRect(px, py, px2 - px, py2 - py);
+            }
+
+            // 坐标轴标签
+            ctx.fillStyle = '#555'; ctx.font = '9px monospace';
+            for (let i = -4; i <= 4; i += 2) {
+                if (i === 0) continue;
+                let [px] = toScreen(i, -5.2);
+                ctx.fillText(i, px - 6, oy + size + 14);
+                let [, py] = toScreen(-5.2, i);
+                ctx.fillText(i, ox - 18, py + 3);
+            }
+
+            // AGV
+            if (simData.robots) {
+                for (const r of simData.robots) {
+                    let [x, y] = r.position;
+                    let yaw = r.yaw || 0;
+                    let [px, py] = toScreen(x, y);
+                    let robotSize = 10;
+
+                    // 车身（朝向三角形）
+                    ctx.save();
+                    ctx.translate(px, py);
+                    ctx.rotate(-yaw * Math.PI / 180); // yaw=0 朝右(东)，canvas 0 朝右
+                    ctx.fillStyle = r.color || '#4caf50';
+                    ctx.beginPath();
+                    ctx.moveTo(robotSize, 0);
+                    ctx.lineTo(-robotSize * 0.7, -robotSize * 0.7);
+                    ctx.lineTo(-robotSize * 0.5, 0);
+                    ctx.lineTo(-robotSize * 0.7, robotSize * 0.7);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // 标签
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.fillText(r.robot_id, px - 18, py - 14);
+
+                    // 选中高亮
+                    if (selectedRobot === r.robot_id) {
+                        ctx.strokeStyle = '#e94560';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(px, py, robotSize + 4, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+
+                    // 区域颜色
+                    const zoneColor = {A:'#4caf50', B:'#42a5f5', C:'#ab47bc', D:'#ff9800', '走道':'#555'}[r.zone] || '#555';
+                    ctx.fillStyle = zoneColor;
+                    ctx.font = '9px sans-serif';
+                    ctx.fillText(r.zone, px - 6, py + robotSize + 14);
+                }
+            }
+        }
+
+        // Canvas 点击选择机器人
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+            const w = canvas.width, h = canvas.height;
+            const margin = 40;
+            const size = Math.min(w, h) - margin * 2;
+            const scale = size / 10;
+            const ox = (w - size) / 2, oy = (h - size) / 2;
+
+            let closest = null, closestDist = 20; // 20px radius
+            for (const r of (simData.robots || [])) {
+                let [px, py] = [ox + (r.position[0] + 5) * scale, oy + (5 - r.position[1]) * scale];
+                let dist = Math.sqrt((mx - px) ** 2 + (my - py) ** 2);
+                if (dist < closestDist) { closest = r.robot_id; closestDist = dist; }
+            }
+            selectedRobot = closest;
+            updateCtrlPanel();
+            drawScene();
+        });
+
+        function updateCtrlPanel() {
+            const section = document.getElementById('ctrlSection');
+            const target = document.getElementById('ctrlTarget');
+            if (selectedRobot) {
+                section.style.display = '';
+                target.textContent = `[${selectedRobot}]`;
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        // ========== API ==========
+        async function api(path, opts = {}) {
+            const url = path.startsWith('http') ? path : `${API}${path}`;
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(await res.text());
+            return res.json();
+        }
+
+        async function checkStatus() {
+            try {
+                const data = await api('/sim/status');
+                document.getElementById('apiStatus').innerHTML =
+                    '<span class="status-dot online"></span>在线';
+                simData = data;
+                updateUI();
+                drawScene();
+            } catch(e) {
+                document.getElementById('apiStatus').innerHTML =
+                    '<span class="status-dot offline"></span>离线';
+                document.getElementById('simPanel') && (document.getElementById('simPanel').innerHTML =
+                    '<div style="font-size:12px;color:#f44336;">仿真服务未启动</div>');
+            }
+        }
+
+        function updateUI() {
+            const scene = simData.scene || {};
+            document.getElementById('sceneInfo').innerHTML = `
+                ${scene.mode === 'gui' ? '🖥️' : '⚙️'} ${(scene.mode || '?').toUpperCase()} |
+                ${scene.warehouse_size || 10}m × ${scene.warehouse_size || 10}m<br>
+                障碍: ${scene.obstacle_count || 0} | 区域: 4
+            `;
+            document.getElementById('robotCount').textContent = `(${simData.robots?.length || 0})`;
+
+            const list = document.getElementById('robotList');
+            if (!simData.robots || simData.robots.length === 0) {
+                list.innerHTML = '<div style="font-size:12px;color:#555;">无AGV运行中</div>';
+            } else {
+                const zoneColor = {A:'#4caf50', B:'#42a5f5', C:'#ab47bc', D:'#ff9800', '走道':'#666'};
+                list.innerHTML = simData.robots.map(r => `
+                    <div class="robot-card" style="${selectedRobot === r.robot_id ? 'border-color:#e94560;' : ''}"
+                         onclick="selectedRobot='${r.robot_id}'; updateCtrlPanel(); drawScene();">
+                        <div class="robot-dot" style="background:${r.color || '#4caf50'};"></div>
+                        <div class="robot-info">
+                            <div class="name">${r.robot_id}</div>
+                            <div class="pos">(${r.position[0].toFixed(1)}, ${r.position[1].toFixed(1)})</div>
+                        </div>
+                        <span class="robot-zone" style="color:${zoneColor[r.zone] || '#666'};">${r.zone}</span>
+                        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteRobot('${r.robot_id}')">✕</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // ========== 机器人操作 ==========
+        async function quickCreate() {
+            const colors = ['blue', 'green', 'orange', 'red', 'purple'];
+            // 顺序命名 agv_1, agv_2, agv_3...
+            const existing = (simData.robots || []).map(r => r.robot_id);
+            let idx = 1;
+            while (existing.includes(`agv_${idx}`)) idx++;
+            const id = `agv_${idx}`;
+            const color = colors[(idx - 1) % colors.length];
+            try {
+                await api(`/sim/robot/create?robot_id=${id}&x=0&y=0&color=${color}`, { method: 'POST' });
+                toast(`${id} 已就绪`, 'info');
+                await checkStatus();
+            } catch(e) { toast('创建失败: ' + e.message, 'error'); }
+        }
+
+        async function deleteRobot(id) {
+            try {
+                await api(`/sim/robot/${id}`, { method: 'DELETE' });
+                if (selectedRobot === id) selectedRobot = null;
+                updateCtrlPanel();
+                toast(`${id} 已移除`, 'info');
+                await checkStatus();
+            } catch(e) { toast('删除失败', 'error'); }
+        }
+
+        async function moveToZone(zone) {
+            if (!selectedRobot) { toast('请先选择小车', 'error'); return; }
+            try {
+                await api(`/sim/robot/${selectedRobot}/move-by-zone?zone=${zone}`, { method: 'POST' });
+                toast(`${selectedRobot} → ${zone}区`, 'info');
+                await checkStatus();
+            } catch(e) { toast('移动失败', 'error'); }
+        }
+
+        async function moveToXY() {
+            if (!selectedRobot) { toast('请先选择小车', 'error'); return; }
+            const x = parseFloat(document.getElementById('moveX').value);
+            const y = parseFloat(document.getElementById('moveY').value);
+            if (isNaN(x) || isNaN(y)) { toast('请输入坐标', 'error'); return; }
+            try {
+                await api(`/sim/robot/${selectedRobot}/move?x=${x}&y=${y}`, { method: 'POST' });
+                toast(`${selectedRobot} → (${x},${y})`, 'info');
+                await checkStatus();
+            } catch(e) { toast('移动失败', 'error'); }
+        }
+
+        async function resetAll() {
+            try {
+                await api('/sim/reset', { method: 'POST' });
+                selectedRobot = null;
+                updateCtrlPanel();
+                toast('场景已重置', 'info');
+                await checkStatus();
+            } catch(e) { toast('重置失败', 'error'); }
+        }
+
+        // ========== AI 调度 ==========
+        async function sendCmd(msg) {
+            const input = document.getElementById('chatInput');
+            const text = msg || input.value.trim();
+            if (!text) return;
+            if (!msg) input.value = '';
+
+            addChatMsg(text, 'user');
+
+            try {
+                const tokenResp = await fetch(`${API}/token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=admin&password=admin123&tenant_id=default'
+                });
+                const tokenData = await tokenResp.json();
+                const token = tokenData.access_token;
+
+                const resp = await fetch(`${API}/agent/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ message: text, mode: 'auto' })
+                });
+                const data = await resp.json();
+                addChatMsg(data.reply || '操作完成', 'agent');
+                await checkStatus();
+            } catch(e) {
+                addChatMsg('调度失败: ' + e.message, 'agent');
+            }
+        }
+
+        function addChatMsg(text, role) {
+            const div = document.getElementById('chatMsgs');
+            div.innerHTML += `<div class="chat-msg ${role}">${text}</div>`;
+            div.scrollTop = div.scrollHeight;
+        }
+
+        // 回车发送
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendCmd();
+        });
+
+        // ========== 工具 ==========
+        function toast(msg, type) {
+            const el = document.createElement('div');
+            el.className = 'toast ' + type;
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
+        }
+
+        // ========== 初始化 ==========
+        checkStatus();
+        setInterval(checkStatus, 2000);
+
+        // 窗口大小变化时重绘
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            setTimeout(() => { resizeCanvas(); drawScene(); }, 200);
+        });
+        setTimeout(() => { resizeCanvas(); drawScene(); }, 500);
+    </script>
+</body>
+</html>

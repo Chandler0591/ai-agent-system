@@ -94,6 +94,115 @@ class Tools:
         # 注意：database 模块可能不存在，这里是占位
         return json.dumps({"results": [], "message": f"搜索: {keyword}"}, ensure_ascii=False)
 
+    # ========== 仿真工具（W2）==========
+
+    @staticmethod
+    def move_robot(robot_id: str, x: float = None, y: float = None, zone: str = None) -> str:
+        """
+        移动仓库中的 AGV 小车到指定坐标或区域
+
+        参数:
+            robot_id: 小车编号，如 agv_1, agv_2
+            x, y: 目标坐标（与 zone 二选一）
+            zone: 目标区域 A/B/C/D（与 x,y 二选一）
+
+        返回: 移动结果，含位置、距离、所在区域
+        """
+        try:
+            from app.sim_engine import get_sim, ZONES
+            sim = get_sim()
+
+            if zone:
+                zone = zone.upper()
+                if zone not in ZONES:
+                    return json.dumps({"error": f"无效区域: {zone}，可选: A/B/C/D"})
+                tx, ty = ZONES[zone]
+                result = sim.move_robot(robot_id, tx, ty)
+                if "error" in result:
+                    return json.dumps(result)
+                pose = sim.get_robot_pose(robot_id)
+                return json.dumps({
+                    "action": "move",
+                    "robot_id": robot_id,
+                    "target_zone": zone,
+                    "position": pose["position"],
+                    "zone": pose["zone"],
+                    "distance": result["distance"],
+                }, ensure_ascii=False)
+
+            if x is not None and y is not None:
+                result = sim.move_robot(robot_id, x, y)
+                if "error" in result:
+                    return json.dumps(result)
+                pose = sim.get_robot_pose(robot_id)
+                return json.dumps({
+                    "action": "move",
+                    "robot_id": robot_id,
+                    "position": pose["position"],
+                    "zone": pose["zone"],
+                    "distance": result["distance"],
+                }, ensure_ascii=False)
+
+            return json.dumps({"error": "请提供坐标 (x, y) 或区域 (zone)"})
+
+        except ImportError:
+            return json.dumps({"error": "仿真模块未安装"})
+        except Exception as e:
+            logger.error(f"移动机器人失败: {e}")
+            return json.dumps({"error": str(e)})
+
+    @staticmethod
+    def get_robot_status(robot_id: str = None) -> str:
+        """
+        查询 AGV 小车状态
+
+        参数:
+            robot_id: 小车编号，不传则返回所有小车
+
+        返回: 小车位置、朝向、所在区域
+        """
+        try:
+            from app.sim_engine import get_sim
+            sim = get_sim()
+
+            if robot_id:
+                pose = sim.get_robot_pose(robot_id)
+                return json.dumps(pose, ensure_ascii=False)
+
+            robots = sim.get_all_robots()
+            if not robots:
+                return json.dumps({"message": "仓库中没有小车，请先创建"}, ensure_ascii=False)
+            return json.dumps({"robots": robots, "count": len(robots)}, ensure_ascii=False)
+
+        except ImportError:
+            return json.dumps({"error": "仿真模块未安装"})
+        except Exception as e:
+            logger.error(f"查询机器人失败: {e}")
+            return json.dumps({"error": str(e)})
+
+    @staticmethod
+    def check_obstacle(robot_id: str, direction: str = "forward") -> str:
+        """
+        检测 AGV 前方障碍物（激光雷达模拟）
+
+        参数:
+            robot_id: 小车编号
+            direction: 检测方向 forward/left/right/back
+
+        返回: 是否有障碍物及距离
+        """
+        try:
+            from app.sim_engine import get_sim
+            sim = get_sim()
+            result = sim.check_obstacle(robot_id, direction)
+            return json.dumps(result, ensure_ascii=False)
+
+        except ImportError:
+            return json.dumps({"error": "仿真模块未安装"})
+        except Exception as e:
+            logger.error(f"障碍检测失败: {e}")
+            return json.dumps({"error": str(e)})
+
 
 # ========== 工具映射（供 llm_client 使用）==========
 TOOLS_MAP = {
@@ -102,7 +211,11 @@ TOOLS_MAP = {
     "get_time": Tools.get_time,
     "search_knowledge_base": Tools.search_knowledge_base,
     "query_database": Tools.query_database,
-    "search_documents": Tools.search_documents
+    "search_documents": Tools.search_documents,
+    # 仿真工具
+    "move_robot": Tools.move_robot,
+    "get_robot_status": Tools.get_robot_status,
+    "check_obstacle": Tools.check_obstacle,
 }
 
 
@@ -125,3 +238,12 @@ def query_database(sql: str) -> str:
 
 def search_documents(keyword: str) -> str:
     return Tools.search_documents(keyword)
+
+def move_robot(robot_id: str, x: float = None, y: float = None, zone: str = None) -> str:
+    return Tools.move_robot(robot_id, x, y, zone)
+
+def get_robot_status(robot_id: str = None) -> str:
+    return Tools.get_robot_status(robot_id)
+
+def check_obstacle(robot_id: str, direction: str = "forward") -> str:
+    return Tools.check_obstacle(robot_id, direction)

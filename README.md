@@ -41,27 +41,23 @@
 - **会话收藏**：⭐ 一键收藏优质回答，侧边栏收藏列表，支持点击复用
 - **可观测性**：Prometheus 指标暴露、Grafana 可视化仪表盘、结构化日志
 - **可视化交互**：内置 Web 前端界面（支持租户登录/知识库管理）+ Streamlit 企业面板（4模式：Chat/KB搜索/多Agent/RAGAS评估）
+- **🏭 AI 调度仿真**：PyBullet 物理引擎驱动的 10m×10m 仓库仿真，AGV 创建/移动/障碍检测，Agent 自然语言 → 工具调用 → 仿真执行闭环
 - **压力测试**：Locust 多用户画像压测脚本
 
-### 🖥️ 双前端架构
+### 🖥️ 双前端 + 仿真控制台
 
-系统提供两个前端入口，各司其职：
+系统提供三个前端入口，各司其职：
 
-| 维度 | Web 前端 (index.html) | Streamlit 面板 (streamlit_app.py) |
-|------|----------------------|----------------------------------|
-| **定位** | 操作面板 — 高频交互 | 管理面板 — 深度功能 |
-| **技术栈** | HTML + Vanilla JS | Python + Streamlit |
-| **渲染方式** | 浏览器端，毫秒级响应 | 服务端渲染，秒级往返 |
-| **核心能力** | 对话、收藏、复制、场景切换、图片上传、导出 | 对话、多Agent协作、RAGAS评估、知识库搜索、监控指标 |
-| **收藏/复制** | ✅ 原生 DOM 操作，一键即达 | ❌ Streamlit 架构限制，已移除 |
-| **多Agent协作** | ❌ | ✅ Supervisor 模式 + Human-in-the-loop |
-| **RAGAS 评估** | ❌ | ✅ 综合分/忠实度/上下文相关/回答相关 |
-| **知识库搜索** | ❌ | ✅ 独立搜索面板，支持结果数调节 |
-| **监控指标** | ❌ | ✅ Prometheus 指标实时解析展示 |
-| **开发效率** | 需 HTML/CSS/JS | 纯 Python，几十行一个页面 |
-| **部署** | 需 Nginx 静态服务 | `docker compose up -d streamlit` |
+| 维度 | Web 前端 (index.html) | Streamlit 面板 | 🏭 仿真控制台 (sim.html) |
+|------|----------------------|----------------|--------------------------|
+| **定位** | 操作面板 — 高频交互 | 管理面板 — 深度功能 | 仿真控制台 — AI 调度 |
+| **技术栈** | HTML + Vanilla JS | Python + Streamlit | HTML + Canvas 2D |
+| **核心能力** | 对话、收藏、复制、场景切换、图片上传、导出 | 多Agent协作、RAGAS评估、知识库搜索 | 仓库2D俯瞰、AGV创建/移动/区域调度、AI自然语言控制 |
+| **仿真可视化** | ❌ | ❌ | ✅ Canvas 实时渲染（货架/区域/AGV朝向） |
+| **Agent 调度** | ❌ | ❌ | ✅ "把小车移到B区" → Agent工具调用 → 仿真执行 |
+| **手动控制** | ❌ | ❌ | ✅ 点击选中小车 + 按钮移动/区域跳转 |
 
-> **设计原则**：index.html 负责需要即时反馈的操作（收藏、复制），streamlit 负责需要服务端处理的复杂流程（多Agent、评估）。两者共享同一套后端 API，功能互补而非替代。
+> **设计原则**：index.html 负责知识库即时交互，streamlit 负责复杂流程，sim.html 负责仿真可视化与 AI 调度。三者共享同一套后端 API，功能互补。
 
 ---
 
@@ -228,6 +224,8 @@ ai-agent-system/
 │   ├── exporter.py             # 结果导出（Word/Excel）
 │   ├── notifier.py             # 通知推送（钉钉/企微）
 │   │
+│   ├── sim_api.py              #   [新] 仿真 REST API（12个端点）
+│   ├── sim_engine.py           #   [新] PyBullet 仿真引擎
 │   ├── session_manager.py      # 会话管理（Redis+内存双模式）
 │   ├── context_compressor.py   # 上下文压缩优化
 │   ├── task_manager.py         # 异步任务管理（内存模式）
@@ -251,6 +249,7 @@ ai-agent-system/
 │
 ├── web/                        # 前端静态资源
 │   ├── index.html              #   可视化问答页面
+│   ├── sim.html                #   [新] AI 调度仿真控制台
 │   └── streamlit_app.py        #   [新] Streamlit 企业面板
 │
 ├── scripts/                    # [新] 运维脚本
@@ -329,6 +328,23 @@ ai-agent-system/
 | POST | `/api/multi-agent/run` | 多 Agent 协作 |
 | POST | `/api/rag/evaluate` | RAGAS 质量评估 |
 
+### 🏭 仿真 API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/sim/status` | 仓库场景总览 + 所有机器人状态 |
+| POST | `/api/sim/robot/create` | 创建 AGV（robot_id/x/y/yaw/color） |
+| DELETE | `/api/sim/robot/{id}` | 删除指定 AGV |
+| POST | `/api/sim/robot/{id}/move` | 移动 AGV 到坐标（x, y） |
+| POST | `/api/sim/robot/{id}/move-by-zone` | 移动 AGV 到区域（A/B/C/D） |
+| POST | `/api/sim/robot/{id}/velocity` | 速度控制 AGV（vx, vy, duration） |
+| GET | `/api/sim/robot/{id}` | 查询单机器人状态 |
+| GET | `/api/sim/robots` | 列出所有机器人 |
+| GET | `/api/sim/robot/{id}/distance` | 计算到目标点距离 |
+| GET | `/api/sim/robot/{id}/obstacle` | 激光雷达模拟障碍检测 |
+| POST | `/api/sim/reset` | 重置仿真场景 |
+| GET | `/api/sim/zones` | 区域定义查询 |
+
 ### 生产模式认证
 
 设置 `ENV=production` 后，登录需通过数据库验证（users + user_tenants 表），支持 RBAC 租户权限控制。
@@ -400,6 +416,7 @@ ai-agent-system/
 - **危险操作确认**：清空知识库/删除文档弹出"不可恢复"警告
 - **双前端架构**：操作面板（index.html，毫秒级交互） + 管理面板（streamlit，多Agent/评估/监控）
 - **容器安全策略**：非 root 用户/只读文件系统/Cap 裁剪等加固措施移至「大型企业升级路径」，生产环境按需启用
+- **🏭 AI 调度仿真系统**：PyBullet 仓库仿真引擎 + 12 个 REST API + Agent 工具集成 + 2D 实时可视化控制台，实现"把小车移到B区"端到端闭环
 
 ### 🔜 待完善
 - 模型性能压测与效果对比

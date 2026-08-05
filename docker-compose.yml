@@ -54,6 +54,9 @@ services:
       # HuggingFace 缓存路径（非 root 用户需要可写目录）
       - HF_HOME=/tmp/huggingface
       - TRANSFORMERS_CACHE=/tmp/huggingface
+      # 仿真可视化（本地调试设 SIM_MODE=gui，需 WSLg/Win11）
+      - DISPLAY=${DISPLAY:-:0}
+      - SIM_MODE=${SIM_MODE:-direct}
     depends_on:
       redis:
         condition: service_healthy
@@ -63,6 +66,8 @@ services:
       - ./:/app
       - chroma_data:/app/chroma_data
       - ./models:/app/models
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg/.X11-unix:/mnt/wslg/.X11-unix:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   # ========== 异步任务 ==========
