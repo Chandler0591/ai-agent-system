@@ -1,4 +1,4 @@
-# 第 5-6 周：Gazebo + ROS 2 入门 —— 详细拆解与实现说明
+# Gazebo + ROS 2 入门 —— 详细拆解与实现说明
 
 > 配套代码：`scripts/ros2_examples/`（W5 示例）、`app/sim_gazebo*.py`（W6 实现）
 > 前置改造已完成：`SimBackend` 接口（`app/sim_backend.py`）、公共几何（`app/sim_geometry.py`）、

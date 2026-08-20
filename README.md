@@ -245,6 +245,6 @@ scripts/
 - 🤖 多 Agent 协作（Supervisor 模式 + LangGraph 工作流）
 - 📊 可观测性（Prometheus + Grafana + 审计日志）
 
-- 🏗️ Gazebo/ROS2 后端路线图：[docs/W5-W6-gazebo-ros2-roadmap.md](docs/W5-W6-gazebo-ros2-roadmap.md)
+- 🏗️ Gazebo/ROS2 后端路线图：[docs/gazebo-ros2-roadmap.md](docs/gazebo-ros2-roadmap.md)
 
 > 切换到 `main` 分支查看完整项目：`git checkout main`
