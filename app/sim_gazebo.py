@@ -208,20 +208,35 @@ class GazeboBackend(SimBackend):
         }
 
     def remove_robot(self, robot_id: str) -> Dict:
-        """删除一台机器人（delete_entity 服务）"""
+        """删除一台机器人（delete_entity 服务，超时/失败自动重试）"""
         if robot_id not in self.robots:
             return {"error": f"机器人 {robot_id} 不存在"}
-        try:
-            result = subprocess.run(
-                ["ros2", "service", "call", "/delete_entity", "gazebo_msgs/srv/DeleteEntity",
-                 f"{{name: '{robot_id}'}}"],
-                capture_output=True, text=True, timeout=15)
-        except subprocess.TimeoutExpired:
-            logger.warning(f"{robot_id} delete_entity 超时：Gazebo 服务无响应")
-            result = None
-        if result is not None and result.returncode != 0:
-            logger.warning(f"{robot_id} delete_entity 失败，Gazebo 中将残留该模型: "
-                           f"{result.stderr.strip()[:120]}")
+        ok = False
+        for attempt in range(1, 4):  # delete_entity 偶发 DDS 发现延迟 → 最多重试 3 次
+            try:
+                result = subprocess.run(
+                    ["ros2", "service", "call", "/delete_entity", "gazebo_msgs/srv/DeleteEntity",
+                     f"{{name: '{robot_id}'}}"],
+                    capture_output=True, text=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.warning(f"{robot_id} delete_entity 超时(第{attempt}次)：Gazebo 服务无响应，将重试")
+                result = None
+            out = (result.stdout + result.stderr).lower() if result is not None else ""
+            if result is not None and result.returncode == 0:
+                ok = True
+                break
+            # 模型已不存在（首次请求超时但服务端实际已删除）→ 同样视为成功
+            if "no such model" in out or "not exist" in out:
+                ok = True
+                break
+            if result is not None and result.returncode != 0:
+                logger.warning(f"{robot_id} delete_entity 失败(第{attempt}次): "
+                               f"{result.stderr.strip()[:120]}")
+            if attempt < 3:
+                time.sleep(2.0)
+        if not ok:
+            logger.warning(f"{robot_id} delete_entity 连续 3 次失败，Gazebo 中将残留该模型"
+                           "（下轮 spawn 会自动清理）")
         with self._move_lock:
             self.robots.pop(robot_id, None)
             self.move_clients.pop(robot_id, None)
