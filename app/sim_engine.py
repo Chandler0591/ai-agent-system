@@ -1,46 +1,45 @@
 """
-PyBullet 仿真引擎 — AI 调度系统的物理世界接口
+PyBullet 仿真后端 — SimBackend 接口的 PyBullet 实现
 
 设计原则：
-- 单例模式，全局唯一仿真实例
+- 单例模式，全局唯一仿真实例（PyBulletBackend）
 - DIRECT 模式默认（Docker/服务器无头运行），GUI 模式按需开启
-- 每个 AGV = 一个带颜色的方盒（后续可替换为 URDF 模型）
-- 接口稳定：后续换 Gazebo/Isaac Sim 只需替换此类实现
+- 每个 AGV = URDF 模型（models/agv.urdf，与 Gazebo 共用同一模型定义）
+- 实现 SimBackend 契约；切换 Gazebo 后端只需 get_sim() 读 SIM_BACKEND
 """
 
 import os
 import math
-import json
+import threading
 from typing import Dict, List, Optional, Tuple
 
 import pybullet as p
 import pybullet_data
 
 from app.logger import logger
+from app.sim_backend import SimBackend
+# 几何常量下沉到公共模块，两个后端共用；re-export 保持上层 import 兼容
+from app.sim_geometry import (
+    WAREHOUSE_SIZE,
+    ZONES,
+    ZONE_MARK_HALF_EXTENTS,
+    SHELF_POSITIONS,
+    SHELF_HALF_EXTENTS,
+    SHELF_SAFE_DISTANCE,
+    AGV_BODY_Z_OFFSET,
+    ROBOT_COLORS,
+    get_zone_name,
+    check_path_clear,
+)
 
-# ========== 仓库场景常量 ==========
-WAREHOUSE_SIZE = 10.0          # 仓库边长（米）
-ROBOT_COLORS = {
-    "red":    [1.0, 0.2, 0.2, 1.0],
-    "blue":   [0.2, 0.4, 1.0, 1.0],
-    "green":  [0.2, 0.8, 0.3, 1.0],
-    "orange": [1.0, 0.6, 0.1, 1.0],
-    "purple": [0.7, 0.3, 0.9, 1.0],
-}
-
-# 区域定义（A/B/C/D 四象限）
-ZONES = {
-    "A": ( 2.5,  2.5),
-    "B": (-2.5,  2.5),
-    "C": (-2.5, -2.5),
-    "D": ( 2.5, -2.5),
-}
+# AGV URDF 模型路径（与 Gazebo 共用同一文件）
+_AGV_URDF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "agv.urdf")
 
 
-class SimEngine:
-    """仿真引擎单例 — Agent 通过此类控制物理世界"""
+class PyBulletBackend(SimBackend):
+    """PyBullet 仿真后端 — 实现 SimBackend 接口"""
 
-    _instance: Optional["SimEngine"] = None
+    _instance: Optional["PyBulletBackend"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -63,8 +62,21 @@ class SimEngine:
         self._ground_id: int = -1
         self._step_count: int = 0
 
+        # ========== 运动状态机（idle → moving → arrived） ==========
+        self.robot_status: Dict[str, str] = {}              # robot_id → idle/moving/arrived
+        self.robot_targets: Dict[str, Tuple[float, float]] = {}  # robot_id → (tx, ty)
+        self.robot_speeds: Dict[str, float] = {}            # robot_id → m/s
+        self._motion_lock = threading.Lock()
+        self._stop_motion = threading.Event()
+
         self._connect()
         self._setup_scene()
+
+        # 启动运动推进线程（驱动 moving 状态的 AGV 逐步逼近目标）
+        self._motion_thread = threading.Thread(
+            target=self._motion_loop, daemon=True, name="sim-motion-loop"
+        )
+        self._motion_thread.start()
         logger.info(f"仿真引擎已启动 (mode={self.mode}, client={self.client_id})")
 
     # ========== 生命周期 ==========
@@ -101,26 +113,23 @@ class SimEngine:
             basePosition=[0, 0, -0.005],
         )
 
-        # 货架（静态障碍物）
-        shelf_positions = [
-            ( 3.0,  0.0), (-3.0,  0.0),
-            ( 0.0,  3.0), ( 0.0, -3.0),
-        ]
+        # 货架（静态障碍物，位置与尺寸来自公共几何常量）
+        self.shelf_positions = list(SHELF_POSITIONS)  # 供 move_robot 防穿模校验使用
         shelf_visual = p.createVisualShape(
             shapeType=p.GEOM_BOX,
-            halfExtents=[0.8, 0.3, 1.0],
+            halfExtents=list(SHELF_HALF_EXTENTS),
             rgbaColor=[0.5, 0.35, 0.2, 1.0],
         )
         shelf_collision = p.createCollisionShape(
             shapeType=p.GEOM_BOX,
-            halfExtents=[0.8, 0.3, 1.0],
+            halfExtents=list(SHELF_HALF_EXTENTS),
         )
-        for i, (sx, sy) in enumerate(shelf_positions):
+        for i, (sx, sy) in enumerate(SHELF_POSITIONS):
             body_id = p.createMultiBody(
                 baseMass=0,  # 静态
                 baseCollisionShapeIndex=shelf_collision,
                 baseVisualShapeIndex=shelf_visual,
-                basePosition=[sx, sy, 1.0],  # 2m高货架，中心在z=1.0，底贴地面
+                basePosition=[sx, sy, SHELF_HALF_EXTENTS[2]],  # 中心在z=1.0，底贴地面
             )
             self.obstacles[f"shelf_{i}"] = body_id
 
@@ -134,7 +143,7 @@ class SimEngine:
         for zone_name, (zx, zy) in ZONES.items():
             vis = p.createVisualShape(
                 shapeType=p.GEOM_BOX,
-                halfExtents=[1.2, 1.2, 0.005],
+                halfExtents=[ZONE_MARK_HALF_EXTENTS, ZONE_MARK_HALF_EXTENTS, 0.005],
                 rgbaColor=zone_colors.get(zone_name, [0.3, 0.3, 0.3, 0.2]),
             )
             body = p.createMultiBody(
@@ -143,7 +152,7 @@ class SimEngine:
             )
             self.obstacles[f"zone_{zone_name}"] = body
 
-        logger.info(f"仓库场景已初始化 (货架={len(shelf_positions)}, 区域={len(ZONES)})")
+        logger.info(f"仓库场景已初始化 (货架={len(SHELF_POSITIONS)}, 区域={len(ZONES)})")
 
     def reset(self):
         """重置仿真：清除所有机器人，保留场景"""
@@ -161,11 +170,81 @@ class SimEngine:
     def close(self):
         """关闭仿真连接"""
         if self.client_id >= 0:
+            self._stop_motion.set()
             p.disconnect(self.client_id)
             self.client_id = -1
-            SimEngine._instance = None
+            PyBulletBackend._instance = None
             self._initialized = False
             logger.info("仿真连接已关闭")
+
+    # ========== 运动状态机 ==========
+
+    def _motion_loop(self):
+        """
+        后台线程：推进 moving 状态的 AGV 逐步逼近目标点
+        每个 tick 移动 speed*dt 米，到达后状态置为 arrived
+        """
+        dt = 0.05  # 50ms/tick
+        while not self._stop_motion.is_set():
+            with self._motion_lock:
+                for robot_id in list(self.robot_targets.keys()):
+                    if self.robot_status.get(robot_id) != "moving":
+                        continue
+                    body_id = self.robots.get(robot_id)
+                    if body_id is None:
+                        continue
+
+                    tx, ty = self.robot_targets[robot_id]
+                    pos, _ = p.getBasePositionAndOrientation(body_id)
+                    dx, dy = tx - pos[0], ty - pos[1]
+                    remaining = math.sqrt(dx * dx + dy * dy)
+                    speed = self.robot_speeds.get(robot_id, 0.5)
+                    step_dist = speed * dt
+
+                    if remaining <= step_dist or remaining < 0.01:
+                        # 到达目标：精确落点，状态 → arrived
+                        yaw = math.degrees(math.atan2(dy, dx)) if remaining > 0.001 else None
+                        if yaw is not None:
+                            ori = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+                            p.resetBasePositionAndOrientation(body_id, [tx, ty, pos[2]], ori)
+                        else:
+                            p.resetBasePositionAndOrientation(
+                                body_id, [tx, ty, pos[2]],
+                                p.getQuaternionFromEuler([0, 0, 0]))
+                        self.robot_status[robot_id] = "arrived"
+                        self.robot_targets.pop(robot_id, None)
+                        logger.info(f"{robot_id} 到达目标 ({tx:.2f}, {ty:.2f})")
+                    else:
+                        # 小步推进，车头朝向目标
+                        nx = pos[0] + dx / remaining * step_dist
+                        ny = pos[1] + dy / remaining * step_dist
+                        yaw = math.degrees(math.atan2(dy, dx))
+                        ori = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+                        p.resetBasePositionAndOrientation(body_id, [nx, ny, pos[2]], ori)
+                        self._step_count += 1
+
+            # 有移动中的 AGV 时推进物理世界
+            with self._motion_lock:
+                has_moving = any(s == "moving" for s in self.robot_status.values())
+            if has_moving:
+                p.stepSimulation()
+            self._stop_motion.wait(dt)
+
+    def wait_arrival(self, robot_id: str, timeout: float = 60.0) -> str:
+        """
+        阻塞等待 AGV 到达（供 Agent 工具使用，实现"Agent 等结果"）
+
+        Returns:
+            最终状态：arrived / moving（超时）/ idle
+        """
+        import time
+        elapsed = 0.0
+        while elapsed < timeout:
+            if self.robot_status.get(robot_id) != "moving":
+                return self.robot_status.get(robot_id, "idle")
+            time.sleep(0.1)
+            elapsed += 0.1
+        return self.robot_status.get(robot_id, "moving")
 
     # ========== 机器人管理 ==========
 
@@ -201,6 +280,8 @@ class SimEngine:
 
         self.robots[robot_id] = body_id
         self.robot_colors[robot_id] = rgba
+        self.robot_status[robot_id] = "idle"
+        self.robot_speeds[robot_id] = 0.5
 
         # 推进几步让物理稳定
         self.step(10)
@@ -214,48 +295,18 @@ class SimEngine:
         }
 
     def _create_agv_body(self, x: float, y: float, z: float, yaw: float, rgba: list) -> int:
-        """创建 AGV 物理模型（带 4 个轮子）"""
+        """加载 AGV URDF 模型（models/agv.urdf，车身 + 4 固定轮），并应用车身颜色"""
         # 朝向（度 → 四元数）
         orientation = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
 
-        # 车身
-        body_visual = p.createVisualShape(
-            shapeType=p.GEOM_BOX,
-            halfExtents=[0.35, 0.2, 0.08],
-            rgbaColor=rgba,
-        )
-        body_collision = p.createCollisionShape(
-            shapeType=p.GEOM_BOX,
-            halfExtents=[0.35, 0.2, 0.08],
-        )
-
-        body_id = p.createMultiBody(
-            baseMass=1.0,
-            baseCollisionShapeIndex=body_collision,
-            baseVisualShapeIndex=body_visual,
-            basePosition=[x, y, z + 0.12],
+        body_id = p.loadURDF(
+            _AGV_URDF_PATH,
+            basePosition=[x, y, z + AGV_BODY_Z_OFFSET],
             baseOrientation=orientation,
         )
 
-        # 4 个轮子（圆柱体，固定关节）
-        wheel_visual = p.createVisualShape(
-            shapeType=p.GEOM_CYLINDER,
-            radius=0.06,
-            length=0.03,
-            rgbaColor=[0.1, 0.1, 0.1, 1.0],
-        )
-        wheel_positions = [
-            ( 0.18,  0.13),  # 前左
-            ( 0.18, -0.13),  # 前右
-            (-0.18,  0.13),  # 后左
-            (-0.18, -0.13),  # 后右
-        ]
-        for wx, wy in wheel_positions:
-            p.createMultiBody(
-                baseMass=0.1,
-                baseVisualShapeIndex=wheel_visual,
-                basePosition=[x + wx, y + wy, z + 0.065],
-            )
+        # URDF 默认材质 → 按色表覆盖车身颜色（轮子保持 URDF 内定义的深色）
+        p.changeVisualShape(body_id, -1, rgbaColor=rgba)
 
         return body_id
 
@@ -265,6 +316,10 @@ class SimEngine:
             return {"error": f"机器人 {robot_id} 不存在"}
         body_id = self.robots.pop(robot_id)
         self.robot_colors.pop(robot_id, None)
+        self.robot_status.pop(robot_id, None)
+        with self._motion_lock:
+            self.robot_targets.pop(robot_id, None)
+        self.robot_speeds.pop(robot_id, None)
         p.removeBody(body_id)
         logger.info(f"已删除机器人: {robot_id}")
         return {"robot_id": robot_id, "status": "removed"}
@@ -274,48 +329,72 @@ class SimEngine:
     def move_robot(self, robot_id: str, x: float, y: float,
                    speed: float = 0.5) -> Dict:
         """
-        移动 AGV 到目标位置（瞬时传送）
+        移动 AGV 到目标位置（状态机：idle → moving → arrived）
+
+        本方法只登记目标并置状态为 moving，由后台 _motion_loop 线程逐步推进；
+        需要同步等待到达请使用 wait_arrival()。
 
         Args:
             robot_id: AGV ID
             x, y: 目标坐标
-            speed: 移动速度（m/s，当前为瞬时传送，后续用于动画）
+            speed: 移动速度 (m/s)
 
         Returns:
-            {"robot_id": "...", "position": [x, y, z], "distance": 1.5}
+            {"robot_id": "...", "position": [当前x,y,z], "target": [x,y],
+             "distance": 1.5, "status": "moving"}
         """
         if robot_id not in self.robots:
             return {"error": f"机器人 {robot_id} 不存在"}
 
         body_id = self.robots[robot_id]
-        current_pos, current_ori = p.getBasePositionAndOrientation(body_id)
+        current_pos, _ = p.getBasePositionAndOrientation(body_id)
 
-        # 计算距离和运动方向
+        # 防穿模校验：目标点与任何货架中心距离 < 安全距离时拒绝移动
+        for sx, sy in self.shelf_positions:
+            dist_to_shelf = math.hypot(x - sx, y - sy)
+            if dist_to_shelf < SHELF_SAFE_DISTANCE:
+                return {
+                    "error": f"目标点 ({x}, {y}) 与货架 ({sx}, {sy}) 冲突，"
+                             f"距离 {dist_to_shelf:.2f}m < 安全距离 {SHELF_SAFE_DISTANCE}m，拒绝移动防穿模"
+                }
+
+        # 路径防穿模：目标点合法 ≠ 直线路径合法（路径可能贴着货架经过）
+        path_error = check_path_clear(current_pos[0], current_pos[1], x, y)
+        if path_error:
+            return {"error": f"{path_error}，拒绝移动防穿模（请分段绕行）"}
+
+        # 计算距离
         dx, dy = x - current_pos[0], y - current_pos[1]
         distance = math.sqrt(dx * dx + dy * dy)
 
-        # 朝向自动对齐运动方向（atan2(Δy, Δx) = 从东逆时针角度）
-        if distance > 0.001:
-            yaw = math.degrees(math.atan2(dy, dx))
-        else:
-            _, _, yaw = p.getEulerFromQuaternion(current_ori)
-            yaw = math.degrees(yaw)
-        target_ori = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+        if distance < 0.001:
+            # 已在目标点，直接标记 arrived
+            with self._motion_lock:
+                self.robot_status[robot_id] = "arrived"
+                self.robot_targets.pop(robot_id, None)
+            return {
+                "robot_id": robot_id,
+                "position": [x, y, current_pos[2]],
+                "distance": 0.0,
+                "from": [round(current_pos[0], 2), round(current_pos[1], 2)],
+                "status": "arrived",
+                "message": "已在目标位置，无需移动",
+            }
 
-        # 瞬时传送（车头朝向运动方向）
-        p.resetBasePositionAndOrientation(
-            body_id,
-            [x, y, current_pos[2]],
-            target_ori,
-        )
-        self.step(5)
+        # 登记移动任务，后台线程推进
+        with self._motion_lock:
+            self.robot_targets[robot_id] = (x, y)
+            self.robot_speeds[robot_id] = speed
+            self.robot_status[robot_id] = "moving"
 
-        logger.info(f"{robot_id} 移动到 ({x:.2f}, {y:.2f}) 距离={distance:.2f}m")
+        logger.info(f"{robot_id} 开始移动 → ({x:.2f}, {y:.2f}) 距离={distance:.2f}m speed={speed}m/s")
         return {
             "robot_id": robot_id,
-            "position": [x, y, current_pos[2]],
+            "position": [round(current_pos[0], 3), round(current_pos[1], 3), round(current_pos[2], 3)],
+            "target": [x, y],
             "distance": round(distance, 2),
             "from": [round(current_pos[0], 2), round(current_pos[1], 2)],
+            "status": "moving",
         }
 
     def move_robot_by_velocity(self, robot_id: str, vx: float, vy: float,
@@ -362,6 +441,7 @@ class SimEngine:
             "yaw": round(math.degrees(yaw), 1),
             "zone": zone,
             "color": self._get_color_name(robot_id),
+            "status": self.robot_status.get(robot_id, "idle"),
         }
 
     def get_all_robots(self) -> List[Dict]:
@@ -448,11 +528,8 @@ class SimEngine:
     # ========== 辅助方法 ==========
 
     def _get_zone(self, x: float, y: float) -> str:
-        """根据坐标判断所在区域"""
-        for zone_name, (zx, zy) in ZONES.items():
-            if abs(x - zx) < 1.2 and abs(y - zy) < 1.2:
-                return zone_name
-        return "走道"
+        """根据坐标判断所在区域（公共几何函数）"""
+        return get_zone_name(x, y)
 
     def _get_color_name(self, robot_id: str) -> str:
         """根据 RGBA 反查颜色名"""
@@ -465,13 +542,37 @@ class SimEngine:
         return "custom"
 
 
-# ========== 全局单例 ==========
-_sim_instance: Optional[SimEngine] = None
+# ========== 全局单例（后端开关） ==========
+_sim_instance: Optional[SimBackend] = None
 
 
-def get_sim() -> SimEngine:
-    """获取仿真引擎单例（懒加载，避免 import 时就连 PyBullet）"""
+def get_sim() -> SimBackend:
+    """
+    获取仿真后端单例（懒加载，避免 import 时就连引擎）
+
+    按 SIM_BACKEND 环境变量选择后端：
+    - pybullet（默认）：PyBulletBackend
+    - gazebo：GazeboBackend（W5-W6 迭代实现）
+    """
     global _sim_instance
     if _sim_instance is None:
-        _sim_instance = SimEngine()
+        backend = os.getenv("SIM_BACKEND", "pybullet").strip().lower()
+        if backend == "pybullet":
+            _sim_instance = PyBulletBackend()
+        elif backend in ("gazebo", "ros2"):
+            try:
+                from app.sim_gazebo import GazeboBackend
+            except ImportError as e:
+                logger.error(f"SIM_BACKEND={backend} 但 Gazebo 后端依赖缺失: {e}")
+                raise RuntimeError(
+                    "Gazebo 后端需要 ROS 2 环境（rclpy + gazebo_ros + sim_interfaces），"
+                    "详见 docs/W5-W6-gazebo-ros2-roadmap.md；当前可改用 SIM_BACKEND=pybullet"
+                ) from e
+            _sim_instance = GazeboBackend()
+        else:
+            raise ValueError(f"未知仿真后端: {backend}，可选: pybullet / gazebo")
     return _sim_instance
+
+
+# 向后兼容别名（scripts/test_sim.py 等旧引用）
+SimEngine = PyBulletBackend

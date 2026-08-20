@@ -120,6 +120,8 @@ class Tools:
                 result = sim.move_robot(robot_id, tx, ty)
                 if "error" in result:
                     return json.dumps(result)
+                # 等待到达（状态机 idle → moving → arrived），实现"Agent 等结果"
+                status = sim.wait_arrival(robot_id, timeout=60.0)
                 pose = sim.get_robot_pose(robot_id)
                 return json.dumps({
                     "action": "move",
@@ -127,6 +129,7 @@ class Tools:
                     "target_zone": zone,
                     "position": pose["position"],
                     "zone": pose["zone"],
+                    "status": status,
                     "distance": result["distance"],
                 }, ensure_ascii=False)
 
@@ -134,12 +137,15 @@ class Tools:
                 result = sim.move_robot(robot_id, x, y)
                 if "error" in result:
                     return json.dumps(result)
+                # 等待到达（状态机 idle → moving → arrived），实现"Agent 等结果"
+                status = sim.wait_arrival(robot_id, timeout=60.0)
                 pose = sim.get_robot_pose(robot_id)
                 return json.dumps({
                     "action": "move",
                     "robot_id": robot_id,
                     "position": pose["position"],
                     "zone": pose["zone"],
+                    "status": status,
                     "distance": result["distance"],
                 }, ensure_ascii=False)
 
@@ -149,6 +155,29 @@ class Tools:
             return json.dumps({"error": "仿真模块未安装"})
         except Exception as e:
             logger.error(f"移动机器人失败: {e}")
+            return json.dumps({"error": str(e)})
+
+    @staticmethod
+    def check_distance(robot_id: str, target_x: float, target_y: float) -> str:
+        """
+        计算机器人到目标点的距离（传感器）
+
+        参数:
+            robot_id: 小车编号，如 agv_1
+            target_x, target_y: 目标点坐标
+
+        返回: 当前坐标、目标坐标、直线距离
+        """
+        try:
+            from app.sim_engine import get_sim
+            sim = get_sim()
+            result = sim.check_distance(robot_id, target_x, target_y)
+            return json.dumps(result, ensure_ascii=False)
+
+        except ImportError:
+            return json.dumps({"error": "仿真模块未安装"})
+        except Exception as e:
+            logger.error(f"距离计算失败: {e}")
             return json.dumps({"error": str(e)})
 
     @staticmethod
@@ -216,6 +245,7 @@ TOOLS_MAP = {
     "move_robot": Tools.move_robot,
     "get_robot_status": Tools.get_robot_status,
     "check_obstacle": Tools.check_obstacle,
+    "check_distance": Tools.check_distance,
 }
 
 
@@ -247,3 +277,6 @@ def get_robot_status(robot_id: str = None) -> str:
 
 def check_obstacle(robot_id: str, direction: str = "forward") -> str:
     return Tools.check_obstacle(robot_id, direction)
+
+def check_distance(robot_id: str, target_x: float, target_y: float) -> str:
+    return Tools.check_distance(robot_id, target_x, target_y)

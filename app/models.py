@@ -80,6 +80,8 @@ class AgentState(TypedDict):
     final_answer: str               # 最终答案
     iteration: int                  # 迭代次数
     max_iterations: int             # 最大迭代次数
+    task_steps: Dict[str, List[str]]   # 复合指令拆解：robot_id → 区域顺序序列
+    task_progress: Dict[str, int]      # 每台机器人当前执行到第几步
 
 class BookmarkRequest(BaseModel):
     session_id: str

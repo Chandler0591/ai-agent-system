@@ -18,5 +18,8 @@ chroma_data/
 # Docker
 *.log
 
+# 诊断脚本临时目录（docker exec 排查用，不入库）
+tmp/
+
 # OS
 .DS_Store

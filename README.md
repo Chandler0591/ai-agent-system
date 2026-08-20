@@ -2,7 +2,7 @@
 
 > **[ai-agent-system](https://github.com/Chandler0591/ai-agent-system)** 仿真模块 | `feature/simulation` 分支
 
-基于 **PyBullet + FastAPI + LangGraph Agent** 的仓库调度仿真系统。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
+基于 **PyBullet + FastAPI + LangGraph Agent** 的仓库调度仿真系统，支持**双仿真后端热拔插**：PyBullet 轻量后端（默认）与 **Gazebo + ROS 2 Humble 物理后端**。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
 
 ---
 
@@ -83,6 +83,49 @@ SIM_MODE=gui python3 scripts/sim_demo.py
 
 ---
 
+## 🤖 Gazebo 物理后端（ROS 2 Humble）
+
+通过 `SIM_BACKEND` 环境变量切换后端（`pybullet` 默认 / `gazebo`），两后端实现同一 `SimBackend` 接口，上层代码无感知。
+
+| 组件 | 职责 |
+|------|------|
+| `app/sim_gazebo.py` | `GazeboBackend`：spawn/删除 AGV、move_to 调度、场景管理 |
+| `app/sim_gazebo_robot.py` | `Ros2Robot`：odom 订阅 / cmd_vel 发布 / 真值查询 |
+| `app/sim_gazebo_srv.py` | `MoveToServer`（每车一进程）+ `MoveToClient`：20Hz 闭环控制器 |
+| `app/sim_geometry.py` | 仓库几何常量（两后端共用，防穿模校验） |
+| `models/agv.urdf` | AGV 物理模型（两后端共用） |
+
+### 运行（容器内）
+
+```bash
+# 1) 启动 3 台车的 move_to 服务端（自带残留进程自愈清理）
+python3 scripts/ros2_examples/start_move_to_server.py agv_1 &
+python3 scripts/ros2_examples/start_move_to_server.py agv_2 &
+python3 scripts/ros2_examples/start_move_to_server.py agv_3 &
+
+# 2) 跑三车调度演示（两轮交叉调度，全部到达后自动清理）
+SIM_BACKEND=gazebo python3 scripts/sim_demo.py
+```
+
+### URDF 物理参数（关键修复）
+
+| 参数 | 值 | 作用 |
+|------|-----|------|
+| 后轮（驱动） | cylinder 碰撞 + `mu=1` | 抓地力，直线/转向力矩传递 |
+| 前轮（万向） | sphere 碰撞 + `mu=0` | 横向自由滑动，不干扰转向 |
+| 驱动轮关节 rpy | `(-1.5707963 0 0)` | 轮轴对齐（单轴旋转 child z → parent +y） |
+| 接触 | `kp=1e6 kd=1000` | 软接触，避免地面弹跳/抖动 |
+
+> ⚠️ URDF 修改后务必同步进容器并确认生效：`stat -c '%y' /workspace/app/models/agv.urdf`。
+> 旧版 URDF（球面点接触驱动轮）会导致 AGV 打滑：0.5 m/s 指令实际仅 ~0.1 m/s、转向无力、yaw 冻结——这是"轮子空转 / 移动超时"类问题最常见的根因。
+
+### 诊断脚本
+
+`scripts/ros2_examples/probe_wheels.py`：轮子驱动/转向/空转探针（对比 odom 与 Gazebo 真值，一键定位物理层问题）。
+完整路线图见 `docs/W5-W6-gazebo-ros2-roadmap.md`。
+
+---
+
 ## 📡 API 端点
 
 ### 场景
@@ -136,17 +179,23 @@ SIM_MODE=gui python3 scripts/sim_demo.py
 
 ```
 app/
-├── sim_engine.py    # PyBullet 仿真引擎（SimEngine 单例）
-├── sim_api.py       # FastAPI 路由（12 个端点）
-├── tools.py         # Agent 工具注册（3 个仿真工具）
-└── langgraph_agent.py  # Agent 工作流 + 提示词
+├── sim_engine.py        # 仿真引擎入口（get_sim 双后端开关）
+├── sim_backend.py       # SimBackend 抽象接口
+├── sim_gazebo.py        # Gazebo 后端（GazeboBackend）
+├── sim_gazebo_robot.py  # ROS2 机器人封装（odom/cmd_vel/真值）
+├── sim_gazebo_srv.py    # move_to 服务端/客户端（20Hz 闭环）
+├── sim_geometry.py      # 仓库几何常量（防穿模校验）
+├── sim_api.py           # FastAPI 路由（12 个端点）
+├── tools.py             # Agent 工具注册（3 个仿真工具）
+└── langgraph_agent.py   # Agent 工作流 + 提示词
 
 web/
 └── sim.html         # 仿真控制台（Canvas 2D + AI 调度）
 
 scripts/
-├── test_sim.py      # 4 项自动化验证
-└── sim_demo.py      # GUI 交互式演示
+├── ros2_examples/       # ROS2 示例：move_to server、轮子探针、odom 读取等
+├── test_sim.py          # 4 项自动化验证
+└── sim_demo.py          # 演示（PyBullet GUI / Gazebo 双模式）
 ```
 
 ---
@@ -159,5 +208,7 @@ scripts/
 - 🔐 企业安全（JWT 认证 + 多租户 RBAC + 限流）
 - 🤖 多 Agent 协作（Supervisor 模式 + LangGraph 工作流）
 - 📊 可观测性（Prometheus + Grafana + 审计日志）
+
+- 🏗️ Gazebo/ROS2 后端路线图：[docs/W5-W6-gazebo-ros2-roadmap.md](docs/W5-W6-gazebo-ros2-roadmap.md)
 
 > 切换到 `main` 分支查看完整项目：`git checkout main`
