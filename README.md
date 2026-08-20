@@ -246,5 +246,6 @@ scripts/
 - 📊 可观测性（Prometheus + Grafana + 审计日志）
 
 - 🏗️ Gazebo/ROS2 后端路线图：[docs/gazebo-ros2-roadmap.md](docs/gazebo-ros2-roadmap.md)
+- 🔄 程序执行完整流程：[docs/gazebo-execution-flow.md](docs/gazebo-execution-flow.md)
 
 > 切换到 `main` 分支查看完整项目：`git checkout main`
