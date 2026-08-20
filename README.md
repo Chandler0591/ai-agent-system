@@ -2,7 +2,7 @@
 
 > **[ai-agent-system](https://github.com/Chandler0591/ai-agent-system)** 仿真模块 | `feature/simulation` 分支
 
-基于 **PyBullet + FastAPI + LangGraph Agent** 的仓库调度仿真系统，支持**双仿真后端热拔插**：PyBullet 轻量后端（默认）与 **Gazebo + ROS 2 Humble 物理后端**。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
+基于 **PyBullet / Gazebo-ROS 2 双仿真后端 + FastAPI + LangGraph Agent** 的仓库调度仿真系统，后端通过 `SIM_BACKEND` 环境变量热切换（PyBullet 轻量默认，Gazebo + ROS 2 Humble 物理驱动）。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
 
 ---
 
@@ -20,11 +20,11 @@ Agent 🧠: 理解意图 → 调用 move_robot("agv_1", zone="B")
 
 | 能力 | 实现 |
 |------|------|
-| 物理引擎 | PyBullet DIRECT/GUI 双模式，重力 + 碰撞检测 |
+| 物理引擎 | PyBullet DIRECT/GUI 与 Gazebo+ROS 2 双后端，重力 + 碰撞检测 |
 | AGV 管理 | 创建/删除/移动/速度控制，支持 yaw 初始朝向 |
 | 场景感知 | 激光雷达模拟 (rayTest)、距离计算、区域判定 |
 | REST API | 12 个端点，FastAPI 自动生成 `/docs` |
-| Agent 工具 | move_robot / get_robot_status / check_obstacle |
+| Agent 工具 | move_robot / get_robot_status / check_obstacle / check_distance |
 | 可视化 | Canvas 2D 俯瞰（货架/区域/AGV朝向），3秒轮询 |
 
 ---
@@ -221,7 +221,7 @@ app/
 ├── sim_gazebo_srv.py    # move_to 服务端/客户端（20Hz 闭环）
 ├── sim_geometry.py      # 仓库几何常量（防穿模校验）
 ├── sim_api.py           # FastAPI 路由（12 个端点）
-├── tools.py             # Agent 工具注册（3 个仿真工具）
+├── tools.py             # Agent 工具注册（4 个仿真工具）
 └── langgraph_agent.py   # Agent 工作流 + 提示词
 
 web/
