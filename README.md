@@ -95,7 +95,40 @@ SIM_MODE=gui python3 scripts/sim_demo.py
 | `app/sim_geometry.py` | 仓库几何常量（两后端共用，防穿模校验） |
 | `models/agv.urdf` | AGV 物理模型（两后端共用） |
 
+### 三层架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    你的控制代码（上层）                      │
+│              sim_gazebo.py / 状态机 / 业务逻辑              │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ 调用 move_robot() / wait_arrival()
+┌──────────────────────▼──────────────────────────────────────┐
+│                  ROS 2 通信层（中间层）                     │
+│     sim_gazebo_robot.py (Ros2Robot) + sim_gazebo_srv.py   │
+│     • 发布 /cmd_vel  • 订阅 /odom  • Service 一问一答      │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ 话题 / 服务
+┌──────────────────────▼──────────────────────────────────────┐
+│                   仿真引擎层（底层）                        │
+│     Gazebo + libgazebo_ros_diff_drive.so (插件)           │
+│     物理模拟：车轮转 → 车身动 → 发布 odom                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **上层**：`GazeboBackend` 与 PyBullet 后端实现同一 `SimBackend` 接口，业务代码无感知
+- **中间层**：`Ros2Robot` 封装 odom/cmd_vel 与真值查询，`MoveToServer` 20Hz 闭环控制
+- **底层**：Gazebo classic + `libgazebo_ros_diff_drive.so` 插件，物理结算与 odom 发布
+
 ### 运行（容器内）
+
+**推荐：一键编排**（自动清场 → 起服务端 → 演示 → 统一清理，^C 也会兜底清理）：
+
+```bash
+bash scripts/run_demo.sh
+```
+
+**手动方式**：
 
 ```bash
 # 1) 启动 3 台车的 move_to 服务端（自带残留进程自愈清理）
@@ -106,6 +139,8 @@ python3 scripts/ros2_examples/start_move_to_server.py agv_3 &
 # 2) 跑三车调度演示（两轮交叉调度，全部到达后自动清理）
 SIM_BACKEND=gazebo python3 scripts/sim_demo.py
 ```
+
+**残留治理**：`run_demo.sh` 统一清场（零速停车 / 删残留车 / 杀残留 server / 杀僵尸 spawn）；`remove_robot` 删除失败自动重试 3 次；`sim_demo.py` 捕获 ^C 自动删车退出——杜绝"幽灵车漂移"与同名节点冲突。
 
 ### URDF 物理参数（关键修复）
 
@@ -193,6 +228,7 @@ web/
 └── sim.html         # 仿真控制台（Canvas 2D + AI 调度）
 
 scripts/
+├── run_demo.sh          # 一键演示编排（清场→起服务端→演示→统一清理）
 ├── ros2_examples/       # ROS2 示例：move_to server、轮子探针、odom 读取等
 ├── test_sim.py          # 4 项自动化验证
 └── sim_demo.py          # 演示（PyBullet GUI / Gazebo 双模式）
