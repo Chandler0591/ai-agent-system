@@ -157,7 +157,8 @@ SIM_BACKEND=gazebo python3 scripts/sim_demo.py
 ### 诊断脚本
 
 `scripts/ros2_examples/probe_wheels.py`：轮子驱动/转向/空转探针（对比 odom 与 Gazebo 真值，一键定位物理层问题）。
-完整路线图见 `docs/W5-W6-gazebo-ros2-roadmap.md`。
+程序执行完整流程（双进程架构 / spawn / 移动闭环 / 常见坑）：[docs/gazebo-execution-flow.md](docs/gazebo-execution-flow.md)。
+完整路线图见 `docs/gazebo-ros2-roadmap.md`。
 
 ---
 
