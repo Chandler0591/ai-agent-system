@@ -1,7 +1,7 @@
 # Gazebo + ROS 2 入门 —— 详细拆解与实现说明
 
-> 配套代码：`scripts/ros2_examples/`（W5 示例）、`app/sim_gazebo*.py`（W6 实现）
-> 前置改造已完成：`SimBackend` 接口（`app/sim_backend.py`）、公共几何（`app/sim_geometry.py`）、
+> 配套代码：`scripts/ros2_examples/`（学习示例）、`app/sim_gazebo*.py`（项目实现）。
+> 核心组件：`SimBackend` 接口（`app/sim_backend.py`）、公共几何（`app/sim_geometry.py`）、
 > AGV URDF 模型（`app/models/agv.urdf`）、`SIM_BACKEND` 后端开关（`app/sim_engine.py`）。
 
 ## 总体架构
@@ -10,15 +10,15 @@
 Agent (tools.py / sim_api.py 零改动)
   └── get_sim() 按 SIM_BACKEND 环境变量选择
         ├── PyBulletBackend（默认，app/sim_engine.py）
-        └── GazeboBackend（W6-3，app/sim_gazebo.py）
-              ├── Ros2Robot ×N（W6-1，app/sim_gazebo_robot.py）
-              └── MoveToClient（W6-2，app/sim_gazebo_srv.py）
+        └── GazeboBackend（app/sim_gazebo.py）
+              ├── Ros2Robot ×N（app/sim_gazebo_robot.py）
+              └── MoveToClient（app/sim_gazebo_srv.py）
 共享：app/sim_geometry.py（几何常量）+ app/models/agv.urdf（同一模型双引擎加载）
 ```
 
 ---
 
-## W5-1：ROS 2 环境搭建
+## 环境搭建
 
 **目标**：在 Docker 里跑起 ROS 2 Humble，验证话题机制。
 
@@ -44,7 +44,7 @@ ros2 topic list
 
 ---
 
-## W5-2：Topic / Node 发布订阅模式
+## Topic / Node 发布订阅模式
 
 **目标**：手写最小发布者与订阅者，理解三步结构（创建节点 → 创建 pub/sub → 发布/回调）。
 
@@ -88,7 +88,7 @@ ros2 topic hz /chatter         # 看发布频率
 
 ---
 
-## W5-3：Gazebo 启动 + URDF 结构解剖
+## Gazebo 启动 + URDF 结构解剖
 
 **目标**：跑起 Gazebo，用项目自己的 `app/models/agv.urdf` 学习 URDF 三要素。
 
@@ -122,14 +122,14 @@ ros2 run gazebo_ros spawn_entity.py -entity agv -file /path/to/app/models/agv.ur
 
 ---
 
-## W5-4：Python Node 控制移动（/cmd_vel）
+## Python Node 控制移动（/cmd_vel）
 
 **目标**：发 `/cmd_vel` 让车动起来。代码：`scripts/ros2_examples/cmd_vel_publisher.py`
 
-> **用什么车？** 本任务用 ROS 2 官方学习机器人 turtlebot3（`sudo apt install ros-humble-turtlebot3-gazebo`），
+> **用什么车？** 本节用 ROS 2 官方学习机器人 turtlebot3（`sudo apt install ros-humble-turtlebot3-gazebo`），
 > 它自带 diff_drive 插件订阅 `/cmd_vel`。**本项目没有 turtlebot 实现**——项目自己的
 > `app/models/agv.urdf` 已带 `libgazebo_ros_diff_drive` 插件（订阅 `/cmd_vel`、发布 `/odom`），
-> 学完本任务后可直接用 agv 复现，两者用法完全一致。
+> 学完后可直接用 agv 复现，两者用法完全一致。
 
 ```python
 class CmdVelPublisher(Node):
@@ -157,7 +157,7 @@ class CmdVelPublisher(Node):
 
 ---
 
-## W5-5：读 `/odom` 获取位置
+## 读 `/odom` 获取位置
 
 **目标**：订阅里程计话题实时拿 x/y/yaw——Gazebo 版 `get_robot_pose()` 的数据源。代码：`scripts/ros2_examples/odom_reader.py`
 
@@ -179,11 +179,11 @@ class OdomReader(Node):
 - `nav_msgs/msg/Odometry` 层级：`pose.pose.position` / `pose.pose.orientation`
 - **对应关系**：`get_robot_pose()` 返回 `{position, yaw, zone, ...}` —— Gazebo 后端 = 本回调缓存 + `sim_geometry.get_zone_name()`
 
-**验收**：W5-4 的车跑起来时本节点实时打印坐标变化。
+**验收**：上一步的车跑起来时本节点实时打印坐标变化。
 
 ---
 
-## W6-1：封装 `Ros2Robot` 类
+## 封装 `Ros2Robot` 类
 
 > `Ros2Robot` 对应 PyBullet 的 body_id 层，上层统一走 `SimBackend` 接口。
 
@@ -223,7 +223,7 @@ class Ros2Robot:
 
 ---
 
-## W6-2：ROS 2 Service 封装 `move_to` 同步调用
+## ROS 2 Service 封装 `move_to` 同步调用
 
 **目标**：`move_robot` + `wait_arrival` 的"发起→阻塞等待→返回"语义，用 Service 天然实现。
 
@@ -283,7 +283,7 @@ ros2 service call /agv_1/move_to sim_interfaces/srv/MoveTo "{target_x: 2.5, targ
 
 ---
 
-## W6-3：实现 `GazeboBackend`（11 方法全映射）
+## 实现 `GazeboBackend`（11 方法全映射）
 
 **代码**：`app/sim_gazebo.py`（继承 `SimBackend`，实现全部 11 个抽象方法）
 
@@ -316,29 +316,29 @@ ros2 service call /agv_1/move_to sim_interfaces/srv/MoveTo "{target_x: 2.5, targ
 
 | 测试范围 | 环境 | 依赖 |
 |---|---|---|
-| W5 示例（scripts/ros2_examples/） | `osrf/ros:humble-desktop` 容器 | rclpy（镜像自带） |
-| W6 实现（app/sim_gazebo*.py） | ROS 2 环境 + 本项目代码 | rclpy + gazebo_ros + sim_interfaces |
+| 学习示例（scripts/ros2_examples/） | `osrf/ros:humble-desktop` 容器 | rclpy（镜像自带） |
+| Gazebo 实现（app/sim_gazebo*.py） | ROS 2 环境 + 本项目代码 | rclpy + gazebo_ros + sim_interfaces |
 | PyBullet 回归 | 现有 API 容器 | 无新增依赖（默认路径不受影响） |
 
-## W5 示例测试（学习容器内）
+## 学习示例测试（学习容器内）
 
 ```bash
 # 在 osrf/ros:humble-desktop 容器内
 source /opt/ros/humble/setup.bash
 cd /path/to/scripts/ros2_examples
 
-# W5-2：两个终端分别跑（chatter 话题）
+# 两个终端分别跑（chatter 话题）
 python3 talker.py     # 终端 1
 python3 listener.py   # 终端 2 → 每 0.5s 打印"收到: hello ros2"
 
-# W5-4（需 Gazebo + 车模型运行中）
+#（需 Gazebo + 车模型运行中）
 python3 cmd_vel_publisher.py   # 车前进 5s 后停
 
-# W5-5（需 odom 话题存在）
+#（需 odom 话题存在）
 python3 odom_reader.py         # 实时打印 x/y/yaw
 ```
 
-## W6 实现测试（ROS 2 + Gazebo 环境）
+## Gazebo 实现测试（ROS 2 + Gazebo 环境）
 
 ```bash
 # 1. 编译 sim_interfaces（MoveTo.srv）
