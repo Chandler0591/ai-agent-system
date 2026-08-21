@@ -319,7 +319,43 @@ threading.Thread(target=lambda: executor.spin_once(timeout_sec=0.1), daemon=True
 
 ---
 
-## 六、一句话总结
+## 六、底层通信三问（spin / DDS 缓冲区 / 响应链路）
+
+### 6.1 spin 怎么知道处理哪些消息
+
+rclpy 用"注册 + 动态枚举"两段式，executor 不需要自己找任务：
+
+- **注册**：`create_subscription / create_service / create_client` 时，Node 内部登记"实体句柄 → Python 回调"映射；`executor.add_node(node)` 只登记 node 引用
+- **动态枚举**：`spin_once`/`spin` 每轮遍历所有挂载 node 的**当前**全部实体，加入 DDS waitset 等事件；哪个实体有事就调哪个回调
+- **推论**：先 add_node 后 create 实体也能生效——业务进程正是此顺序（`GazeboBackend.__init__` L81 挂载 → `create_robot` 才建订阅），新实体在下一轮 spin（≤0.1s）自动被枚举到，无需重新挂载
+
+### 6.2 DDS 缓冲区与 QoS 深度
+
+- 消息"**到达进程**"和"**进入回调**"是两件事：DDS 先把消息收进接收队列（缓冲区），executor 再逐条取出调用回调
+- 缓冲区容量 = QoS 深度（本项目话题都是 `10`），满了丢最旧的；QoS（Quality of Service，服务质量）= 传输策略（深度 / 可靠性 RELIABLE 重传 vs BEST_EFFORT / 持久性），Service 通信强制 RELIABLE
+- **本项目账目**：odom 30Hz 发布、业务进程 spin 每 0.1s 一轮，最多积压 3 条 << 深度 10，不丢帧
+- **反例（坑 2 的机制解释）**：若 MoveToServer 用单线程 executor，移动回调阻塞 100s 期间 odom 消息堆满 10 条后开始丢最旧 → `pos` 越来越陈旧甚至冻结——这才是"3 线程 + 独立回调组"的根因
+
+### 6.3 Service 响应的完整传递链路
+
+```
+服务端进程                         DDS 网络                    业务进程
+handle_move_request  ────────────────►        DDS 接收缓冲区
+  return response  ◄── 序列化/反序列化 ◄──（executor spin_once 取出）
+（3 处 return：尚无odom/超时/到达）              └─ future 完成
+                                                  └─ _on_done(fut)（spin 线程执行）
+                                                      result_box['resp'] = fut.result()
+                                                      done.set()
+                                                         └─ _drive 线程唤醒
+                                                             resp.success → status
+```
+
+- `resp` 的内容 = 服务端 `return` 的那个 `MoveTo.Response`（`success`/`message` 两字段）
+- `resp is None` = 客户端 120s 超时（服务端没回或响应没赶上），此时 `result_box` 仍是空 dict
+
+---
+
+## 七、一句话总结
 
 > **`move_robot()`（业务进程）→ 防穿模校验 → 后台线程发 Service 请求 → MoveToServer 进程的 20Hz 控制环（读 odom 缓存 → 发 cmd_vel → Gazebo 轮子动 → 插件回 odom）→ 到站停车返回 response → 唤醒调用线程置 status=arrived → `wait_arrival()` 轮询到结果。**
 

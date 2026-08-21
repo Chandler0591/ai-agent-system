@@ -82,6 +82,8 @@ ros2 topic hz /chatter         # 看发布频率
 
 **关键概念**：
 - `create_publisher(消息类型, 话题名, QoS深度)`，QoS 深度=10 表示缓冲 10 条
+- QoS（Quality of Service，服务质量）= 消息传输策略：深度（缓冲区容量，满了丢最旧）、可靠性（RELIABLE 丢包重传 / BEST_EFFORT 不重传）、持久性等；发布端与订阅端策略必须兼容才能通信，Service 通信强制 RELIABLE
+- **spin 是消息循环**：`create_publisher/create_subscription` 只是登记实体与回调，消息到达 DDS 缓冲区后不会自动调用回调，必须由 executor 的 `spin()`/`spin_once()` 取出并分发，否则回调永远不执行
 - `/cmd_vel` 消息类型是 `geometry_msgs/msg/Twist`，用法与 `String` 完全一样
 
 **验收**：两个终端一个发一个收，第三个终端 `echo` 旁观。
