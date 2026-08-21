@@ -185,8 +185,7 @@ class OdomReader(Node):
 
 ## W6-1：封装 `Ros2Robot` 类
 
-> 计划表原文"对应 SimEngine"已过时。现在：`Ros2Robot` 对应 PyBullet 的 **body_id 层**，
-> 上层统一是 `SimBackend` 接口。
+> `Ros2Robot` 对应 PyBullet 的 body_id 层，上层统一走 `SimBackend` 接口。
 
 **代码**：`app/sim_gazebo_robot.py`
 
@@ -217,7 +216,7 @@ class Ros2Robot:
 
 **设计决策**：
 - **单 Node 多车**：话题用 `/{robot_id}/cmd_vel`、`/{robot_id}/odom`、`/{robot_id}/scan` 命名空间区分
-- **位姿缓存**：odom 回调 ~100Hz，查询时读缓存不阻塞
+- **位姿缓存**：odom 回调 30Hz（插件 `update_rate=30`），查询时读缓存不阻塞
 - **状态机**：`idle/moving/arrived` 与 PyBullet 后端语义一致
 
 **验收**：Gazebo 里 spawn 2 台车，分别驱动，`get_pose()` 各自返回正确 zone。
@@ -286,9 +285,6 @@ ros2 service call /agv_1/move_to sim_interfaces/srv/MoveTo "{target_x: 2.5, targ
 
 ## W6-3：实现 `GazeboBackend`（11 方法全映射）
 
-> 本任务已被热拔插改造提前解锁 80%：接口、开关、URDF、几何常量全部就位，
-> 只差 `app/sim_gazebo.py` 这个实现文件（本次已生成骨架）。
-
 **代码**：`app/sim_gazebo.py`（继承 `SimBackend`，实现全部 11 个抽象方法）
 
 | SimBackend 方法 | Gazebo 实现方式 | 复用 |
@@ -311,33 +307,6 @@ ros2 service call /agv_1/move_to sim_interfaces/srv/MoveTo "{target_x: 2.5, targ
 1. `SIM_BACKEND=gazebo` 启动 API，`GET /api/sim/status` 正常
 2. `scripts/test_sim.py` 全绿（同一份测试跑两个后端——热拔插的价值证明）
 3. Agent 指令"agv_1去A取货→送D区"在 Gazebo 里完整执行（tools.py 零改动）
-
----
-
-## W6-4：录制对比视频
-
-1. **PyBullet 版**：`SIM_BACKEND=pybullet SIM_MODE=gui python3 scripts/sim_demo.py`，录制"agv_1去A取货→送D区"
-2. **Gazebo 版**：`SIM_BACKEND=gazebo` + Gazebo GUI 同指令执行，录制
-3. **并列剪辑**：左右分屏，加字幕标出两边工具调用日志（应完全一致）
-
-**对比维度**：Agent 侧日志一致性 / 机器人轨迹（Gazebo 有真实摩擦惯性）/ 响应延迟
-
-**验收**：证明"同一套 Agent，一行环境变量换引擎"。
-
----
-
-## W6-5：博客/笔记大纲
-
-```
-标题：同一套 Agent，两种物理世界 —— SimBackend 接口让 PyBullet 换 Gazebo 只要一行环境变量
-
-1. 背景：轻量验证（PyBullet）→ 高保真验证（Gazebo）
-2. 核心设计：SimBackend 11 方法契约 / sim_geometry 公共几何 / agv.urdf 复用
-3. 改造对比：改前 SimEngine 暴露 PyBullet 细节 → 改后 get_sim() 一行切换
-4. 难点：状态机等价（wait_arrival）、激光雷达（rayTest → /scan）、防穿模校验复用
-5. 数据：同指令耗时 / 轨迹偏差 / 物理保真度
-6. 结论：接口抽象先行的收益
-```
 
 ---
 
@@ -421,13 +390,3 @@ assert 'error' in r, '防穿模应拒绝'
 print('PYBULLET_REGRESSION_OK')
 "
 ```
-
-## 关键验收清单
-
-- [ ] W5-2：talker/listener 互通，echo 旁观
-- [ ] W5-3：agv.urdf 在 Gazebo 成功 spawn
-- [ ] W5-4/5：车动起来 + odom 实时坐标
-- [ ] W6-2：`ros2 service call /agv_1/move_to` 同步返回
-- [ ] W6-3：`SIM_BACKEND=gazebo` 下 `test_sim.py` 全绿
-- [ ] W6-3：同一条 Agent 指令两后端执行一致
-- [ ] PyBullet 默认路径无回归（`SIM_BACKEND` 未设置时一切照旧）
