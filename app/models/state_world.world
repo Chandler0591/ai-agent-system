@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- Gazebo 世界文件：empty 世界 + gazebo_ros_state 世界插件
+     用法：gzserver /workspace/app/models/state_world.world \
+              -s libgazebo_ros_init.so -s libgazebo_ros_factory.so -s libgazebo_ros_force_system.so
+     注意：gazebo_ros_state 是"世界插件"（WORLD plugin），必须像这样声明在 <world> 层；
+           写进 URDF 的 <gazebo> 块或 gzserver -s 参数都不会生效（静默失败）。 -->
+<sdf version="1.6">
+  <world name="default">
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <update_rate>30.0</update_rate>
+    </plugin>
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+  </world>
+</sdf>

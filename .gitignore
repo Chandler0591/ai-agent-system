@@ -6,7 +6,9 @@ __pycache__/
 venv/
 env/
 .env
-models/
+# 大模型权重（只忽略仓库根目录，容器启动时 entrypoint 自动下载）
+/models
+app/models/BAAI/
 *.pdf
 redis_data/
 chroma_data/
