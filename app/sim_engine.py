@@ -590,7 +590,7 @@ def get_sim() -> SimBackend:
                 logger.error(f"SIM_BACKEND={backend} 但 Gazebo 后端依赖缺失: {e}")
                 raise RuntimeError(
                     "Gazebo 后端需要 ROS 2 环境（rclpy + gazebo_ros + sim_interfaces），"
-                    "详见 docs/W5-W6-gazebo-ros2-roadmap.md；当前可改用 SIM_BACKEND=pybullet"
+                    "详见 docs/gazebo-ros2-roadmap.md；当前可改用 SIM_BACKEND=pybullet"
                 ) from e
             _sim_instance = GazeboBackend()
         else:
