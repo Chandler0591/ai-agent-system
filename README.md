@@ -161,11 +161,48 @@ docker compose up -d api
 
 ### 运行（容器内）
 
-**推荐：一键编排**（自动清场 → 起服务端 → 演示 → 统一清理，^C 也会兜底清理）：
+**前置准备（一次性）**：
 
 ```bash
+# 1) 环境变量写入 ~/.bashrc（顺序有讲究：先 Gazebo 后 ROS，ROS_LOCALHOST_ONLY 必须开）
+cat >> ~/.bashrc << 'EOF'
+source /usr/share/gazebo/setup.sh
+source /opt/ros/humble/setup.bash
+export GAZEBO_PLUGIN_PATH=${GAZEBO_PLUGIN_PATH:+$GAZEBO_PLUGIN_PATH:}/opt/ros/humble/lib
+export PYTHONPATH=/opt/ros/humble/local/lib/python3.10/dist-packages:$PYTHONPATH
+export LD_LIBRARY_PATH=/opt/ros/humble/lib:$LD_LIBRARY_PATH
+[ -f ~/ros2_ws/install/setup.bash ] && source ~/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+EOF
+
+# 2) 编译 sim_interfaces（MoveTo.srv 自定义接口）
+mkdir -p ~/ros2_ws/src/sim_interfaces
+cp -r docs/ros2/sim_interfaces/* ~/ros2_ws/src/sim_interfaces/
+cd ~/ros2_ws && colcon build --packages-select sim_interfaces
+```
+
+**方式一：终端三车调度演示**（跑完自动清理）：
+
+```bash
+# 先起 gzserver（必须带 -s 加载 ROS 桥插件；裸 gzserver 没有 /spawn_entity）
+nohup gzserver /workspace/app/models/state_world.world \
+  -s libgazebo_ros_init.so -s libgazebo_ros_factory.so -s libgazebo_ros_force_system.so \
+  > /tmp/gzserver.log 2>&1 &
+
+# 一键编排（自动清场 → 起服务端 → 演示 → 统一清理，^C 也会兜底清理）
 bash scripts/run_demo.sh
 ```
+
+**方式二：浏览器 3D 演示**（轻量 API 常驻，适合对外演示）：
+
+```bash
+# 一键编排：gzserver → move_to server ×3 → 轻量 API(8001)，^C 全清理
+bash scripts/run_gazebo_api.sh
+```
+
+浏览器打开 `http://localhost:8001/index3d.html`（容器需 `-p 8001:8001` 端口映射）。`scripts/sim_api_gazebo.py` 只挂 sim 路由 + 静态页，无数据库/Redis 重依赖，`SIM_BACKEND` 由脚本固定为 gazebo。
+
+> **后端判别**：`GET /api/sim/status` 返回 `"mode":"direct"/"gui"` = PyBullet，`"mode":"gazebo"` = Gazebo（3D 页左上角标识同理）。
 
 **手动方式**：
 
@@ -274,6 +311,8 @@ web/
 
 scripts/
 ├── run_demo.sh          # 一键演示编排（清场→起服务端→演示→统一清理）
+├── run_gazebo_api.sh    # Gazebo 浏览器演示编排（gzserver→move_to server→轻量 API 8001）
+├── sim_api_gazebo.py    # Gazebo 专用轻量 API（仅 sim 路由 + 静态页，供 ROS 容器运行）
 ├── ros2_examples/       # ROS2 示例：move_to server、轮子探针、odom 读取等
 ├── test_sim.py          # 4 项自动化验证
 └── sim_demo.py          # 演示（PyBullet GUI / Gazebo 双模式）
