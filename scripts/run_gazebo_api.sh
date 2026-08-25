@@ -41,5 +41,5 @@ sleep 3
 
 # 3) 轻量 API（前台，^C 触发清理）
 echo "[gazebo_api] API 就绪: http://0.0.0.0:$API_PORT （宿主机用容器 IP 访问）"
-SIM_BACKEND=gazebo uvicorn scripts.sim_api_gazebo:app \
+SIM_BACKEND=gazebo python3 -m uvicorn scripts.sim_api_gazebo:app \
     --host 0.0.0.0 --port $API_PORT --workers 1
