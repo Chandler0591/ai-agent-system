@@ -25,10 +25,12 @@ from app.sim_geometry import (
     WAREHOUSE_SIZE,
     ZONES,
     SHELF_POSITIONS,
+    SHELF_HALF_EXTENTS,
     SHELF_SAFE_DISTANCE,
     ROBOT_COLORS,
     get_zone_name,
     check_path_clear,
+    compute_blocking_factor,
 )
 from app.sim_gazebo_robot import Ros2Robot
 from app.sim_gazebo_srv import MoveToClient
@@ -296,6 +298,12 @@ class GazeboBackend(SimBackend):
         # 后台线程调 Service（阻塞式 move_to），完成后更新状态
         def _drive():
             try:
+                # 调度层车-车避障：发车前等 moving 车让路（错峰）；
+                # 静止车占路则放弃本次移动，提示上层分段绕行
+                if self._wait_for_clear_path(robot_id, x, y):
+                    with self._move_lock:
+                        robot.status = "idle"
+                    return
                 resp = self.move_clients[robot_id].call_sync(x, y, speed)
                 with self._move_lock:
                     if resp is not None and resp.success:
@@ -320,6 +328,48 @@ class GazeboBackend(SimBackend):
             "from": [round(cur[0], 2), round(cur[1], 2)],
             "status": "moving",
         }
+
+    def _wait_for_clear_path(self, robot_id: str, x: float, y: float,
+                             max_wait: float = 60.0) -> bool:
+        """
+        调度层车-车避障（方案②错峰）：发车前检查前进方向锥内是否有他车。
+
+        - 他车 moving：等它走开（错峰），最多 max_wait 秒
+        - 他车静止占路：不会自行让开，放弃本次移动返回 True
+        - 畅通：返回 False，调用方照常发车
+        """
+        waited = 0.0
+        while waited < max_wait:
+            cur = self.robots[robot_id].get_pose()
+            if "error" in cur:
+                return False
+            pos = cur["position"][:2]
+
+            blocker_moving = False
+            blocker_static = False
+            for rid, r in self.robots.items():
+                if rid == robot_id:
+                    continue
+                p = r.get_pose()
+                if "error" in p:
+                    continue
+                if compute_blocking_factor(pos, (x, y), [p["position"][:2]]) <= 0.5:
+                    if r.status == "moving":
+                        blocker_moving = True
+                    else:
+                        blocker_static = True
+
+            if not blocker_moving and not blocker_static:
+                return False
+            if blocker_static:
+                logger.warning(f"{robot_id} 路径被静止 AGV 占用，放弃本次移动"
+                               "（请先移走该车或分段绕行）")
+                return True
+            time.sleep(0.5)   # 等他车走开
+            waited += 0.5
+
+        logger.warning(f"{robot_id} 避障等待超时 {max_wait}s，照常发车")
+        return False
 
     def move_robot_by_velocity(self, robot_id: str, vx: float, vy: float,
                                duration: float = 1.0) -> Dict:
@@ -362,6 +412,8 @@ class GazeboBackend(SimBackend):
         return {
             "warehouse_size": WAREHOUSE_SIZE,
             "zones": {k: list(v) for k, v in ZONES.items()},
+            "shelves": [list(s) for s in SHELF_POSITIONS],
+            "shelf_half_extents": list(SHELF_HALF_EXTENTS),
             "robot_count": len(self.robots),
             "obstacle_count": len(SHELF_POSITIONS),
             "step_count": self._step_count,

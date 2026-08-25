@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 仓储仿真 — AI 调度系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e; color: #e0e0e0; height: 100vh; overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            padding: 10px 24px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #1a1a3e;
+        }
+        .header h1 { font-size: 18px; color: #e94560; }
+        .header-links { display: flex; gap: 12px; }
+        .header-links a {
+            color: #a0a0c0; text-decoration: none; font-size: 13px;
+            padding: 4px 12px; border-radius: 4px; transition: all 0.2s;
+        }
+        .header-links a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .header-links a.active { color: #fff; background: rgba(233,69,96,0.25); }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.online { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+        .status-dot.offline { background: #f44336; }
+
+        .main {
+            display: grid; grid-template-columns: 340px 1fr; gap: 16px;
+            padding: 16px; height: calc(100vh - 52px);
+        }
+
+        .panel {
+            background: #16213e; border-radius: 12px; padding: 16px;
+            display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+        }
+        .panel-section { border-bottom: 1px solid #1a1a3e; padding-bottom: 12px; }
+        .panel-section:last-child { border-bottom: none; }
+        .panel-title {
+            font-size: 12px; color: #888; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 8px;
+        }
+
+        .robot-card {
+            background: #1a1a3e; border-radius: 8px; padding: 10px; margin-bottom: 6px;
+            display: flex; align-items: center; gap: 8px; font-size: 13px;
+            border-left: 3px solid #4caf50; transition: all 0.2s; cursor: pointer;
+        }
+        .robot-card:hover { background: #1f1f4a; }
+        .robot-card.selected { border-color: #e94560; background: #1f1f4a; }
+        .robot-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .robot-info { flex: 1; min-width: 0; }
+        .robot-info .name { font-weight: 600; }
+        .robot-info .pos { font-size: 11px; color: #888; font-family: monospace; }
+        .robot-zone { font-size: 11px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+
+        .btn {
+            padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer;
+            font-size: 12px; font-weight: 500; transition: all 0.2s;
+        }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-primary:hover { background: #d63850; }
+        .btn-secondary { background: #1a1a3e; color: #a0a0c0; border: 1px solid #2a2a5e; }
+        .btn-secondary:hover { background: #22224a; }
+        .btn-danger { background: transparent; color: #f44336; border: 1px solid #f44336; }
+        .btn-danger:hover { background: rgba(244,67,54,0.1); }
+        .btn-sm { padding: 3px 8px; font-size: 11px; }
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        input, select {
+            background: #1a1a3e; border: 1px solid #2a2a5e; border-radius: 6px;
+            padding: 6px 10px; color: #e0e0e0; font-size: 12px; outline: none;
+            width: 100%; margin-bottom: 4px;
+        }
+        input:focus { border-color: #e94560; }
+        .input-row { display: flex; gap: 6px; }
+        .input-row input { width: auto; flex: 1; margin-bottom: 0; }
+
+        .viewport {
+            background: #16213e; border-radius: 12px; padding: 12px;
+            display: flex; flex-direction: column;
+        }
+        .viewport-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; font-size: 13px; color: #888;
+        }
+        #scene3d {
+            flex: 1; border-radius: 8px; background: #0f0f23;
+            border: 1px solid #1a1a3e; overflow: hidden; position: relative;
+        }
+        #scene3d canvas { display: block; }
+        .hint {
+            position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: #666;
+            pointer-events: none;
+        }
+
+        .toast {
+            position: fixed; top: 20px; right: 20px; z-index: 999;
+            padding: 10px 20px; border-radius: 8px; font-size: 13px;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.error { background: #f44336; color: #fff; }
+        .toast.info { background: #0f3460; color: #fff; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏭 AI 调度仿真系统 · 3D</h1>
+        <div style="display:flex;align-items:center;gap:16px;">
+            <span style="font-size:12px;color:#888;">API: <span id="apiStatus">
+                <span class="status-dot offline"></span>检测中
+            </span></span>
+            <div class="header-links">
+                <a href="/intro.html">📺 介绍</a>
+                <a href="/sim.html">🗺️ 2D 视图</a>
+                <a href="/index3d.html" class="active">🧊 3D 视图</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- 左侧面板 -->
+        <div class="panel">
+            <div class="panel-section">
+                <div class="panel-title">📐 仓库场景</div>
+                <div id="sceneInfo" style="font-size:12px;color:#888;">加载中...</div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">🤖 AGV 车队 <span id="robotCount" style="color:#e94560;">(0)</span></div>
+                <div id="robotList">
+                    <div style="font-size:12px;color:#555;">无AGV运行中</div>
+                </div>
+                <div class="btn-group" style="margin-top:8px;">
+                    <button class="btn btn-sm btn-secondary" onclick="quickCreate()">+ 快速创建</button>
+                    <button class="btn btn-sm btn-danger" onclick="resetAll()">重置场景</button>
+                </div>
+            </div>
+
+            <div class="panel-section" id="ctrlSection" style="display:none;">
+                <div class="panel-title">🎮 手动控制 <span id="ctrlTarget" style="color:#e94560;"></span></div>
+                <div class="btn-group" style="margin-bottom:8px;">
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('A')">📍 A区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('B')">📍 B区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('C')">📍 C区</button>
+                    <button class="btn btn-sm btn-secondary" onclick="moveToZone('D')">📍 D区</button>
+                </div>
+                <div class="input-row">
+                    <input id="moveX" type="number" placeholder="X" step="0.1">
+                    <input id="moveY" type="number" placeholder="Y" step="0.1">
+                    <button class="btn btn-sm btn-primary" onclick="moveToXY()">移动</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3D 视图 -->
+        <div class="viewport">
+            <div class="viewport-header">
+                <span>🧊 3D 鸟瞰视图（滚轮缩放 / 右键旋转 / 中键平移）</span>
+                <span style="font-size:11px;color:#555;" id="fpsCounter"></span>
+            </div>
+            <div id="scene3d">
+                <div class="hint">滚轮缩放 · 右键旋转 · 中键平移 | 点击小车选中 · 点击地面移动</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ========== 常量（镜像 app/sim_geometry.py，保证所见即所仿） ==========
+        const API = 'http://localhost:8000/api';
+        const W = 10.0;                                   // 仓库边长
+        const ZONES = { A: [2.5, 2.5], B: [-2.5, 2.5], C: [-2.5, -2.5], D: [2.5, -2.5] };
+        const ZONE_COLORS = { A: '#4caf50', B: '#42a5f5', C: '#ab47bc', D: '#ff9800' };
+        const ZONE_HALF = 1.2;                            // 区域半边长
+        const SHELVES = [[3, 0], [-3, 0], [0, 3], [0, -3]];
+        const SHELF_SIZE = [1.6, 2.0, 0.6];               // 货架全尺寸 (x 长, y 高, z 宽)
+        const AGV_BODY_SIZE = [0.7, 0.16, 0.4];           // 车身全尺寸
+        const AGV_BODY_Z_OFFSET = 0.12;                   // 车身中心离地高度
+        const WHEEL_R = 0.06, WHEEL_LEN = 0.03;
+        const WHEEL_POS = [[0.18, 0.13], [0.18, -0.13], [-0.18, 0.13], [-0.18, -0.13]];
+        const ROBOT_HEX = {
+            red: '#ff3b3b', blue: '#3366ff', green: '#33cc4d',
+            orange: '#ff9919', purple: '#b34dcc',
+        };
+
+        // ========== Three.js 场景 ==========
+        const container = document.getElementById('scene3d');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f0f23);
+
+        const camera = new THREE.PerspectiveCamera(
+            50, container.clientWidth / container.clientHeight, 0.1, 300);
+        camera.position.set(0, 13, 9);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.maxPolarAngle = Math.PI / 2.05;          // 不钻到地下
+        controls.minDistance = 4;
+        controls.maxDistance = 40;
+        controls.enableDamping = true;
+
+        // 灯光
+        scene.add(new THREE.HemisphereLight(0x8899bb, 0x223344, 1.0));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+        dir.position.set(8, 15, 5);
+        scene.add(dir);
+
+        // 地面 + 边框 + 网格
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(W, W),
+            new THREE.MeshStandardMaterial({ color: 0x1a1a3e, roughness: 0.9 }));
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        const grid = new THREE.GridHelper(W, 10, 0x2a2a5e, 0x1f1f40);
+        grid.position.y = 0.01;
+        scene.add(grid);
+
+        const borderGeo = new THREE.BoxGeometry(W, 0.3, 0.15);
+        const borderMat = new THREE.MeshStandardMaterial({ color: 0x2a2a5e });
+        for (const [bx, bz, ry] of [
+            [0, -W / 2, 0], [0, W / 2, 0], [-W / 2, 0, Math.PI / 2], [W / 2, 0, Math.PI / 2]]) {
+            const b = new THREE.Mesh(borderGeo, borderMat);
+            b.position.set(bx, 0.15, bz);
+            b.rotation.y = ry;
+            scene.add(b);
+        }
+
+        // ========== 货架（静态障碍，与 sim_geometry.SHELF_POSITIONS 一致） ==========
+        // 结构：4 立柱 + 3 层隔板 + 顶板，尺寸对齐 SHELF_HALF_EXTENTS (0.8, 0.3, 1.0)
+        const shelfGroup = new THREE.Group();
+        scene.add(shelfGroup);
+
+        const shelfFrameMat = new THREE.MeshStandardMaterial({
+            color: 0x444466, roughness: 0.6, metalness: 0.3 });
+        const shelfBoardMat = new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.8 });
+
+        function renderShelves(shelfPositions) {
+            // 清空重画（供 scene.shelves 动态校正）
+            while (shelfGroup.children.length) shelfGroup.remove(shelfGroup.children[0]);
+            const [sx, sh, sz] = SHELF_SIZE;              // 长 1.6 / 高 2.0 / 宽 0.6
+            const postGeo = new THREE.BoxGeometry(0.06, sh, 0.06);
+            const boardGeo = new THREE.BoxGeometry(sx, 0.04, sz);
+            for (const [px, py] of shelfPositions) {
+                const shelf = new THREE.Group();
+                // 4 根立柱
+                for (const [ox, oz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+                    const post = new THREE.Mesh(postGeo, shelfFrameMat);
+                    post.position.set(ox * (sx / 2 - 0.03), sh / 2, oz * (sz / 2 - 0.03));
+                    shelf.add(post);
+                }
+                // 隔板（3 层 + 顶板）
+                for (const h of [0.5, 1.0, 1.5, sh - 0.02]) {
+                    const board = new THREE.Mesh(boardGeo, shelfBoardMat);
+                    board.position.y = h;
+                    shelf.add(board);
+                }
+                shelf.position.set(px, 0, -py);
+                shelfGroup.add(shelf);
+            }
+        }
+        renderShelves(SHELVES);   // 先按常量渲染，checkStatus 后用 scene.shelves 校正
+
+        // ========== 区域标记（半透明色块 + 文字标签，装卸/作业区） ==========
+        function makeTextSprite(text, color) {
+            const c = document.createElement('canvas');
+            c.width = 128; c.height = 64;
+            const ctx = c.getContext('2d');
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = color;
+            ctx.fillText(text, 64, 32);
+            const tex = new THREE.CanvasTexture(c);
+            tex.minFilter = THREE.LinearFilter;
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: tex, transparent: true, depthTest: false }));
+            sp.scale.set(1.6, 0.8, 1);
+            return sp;
+        }
+
+        const zoneGroup = new THREE.Group();
+        scene.add(zoneGroup);
+
+        function renderZones(zones) {
+            while (zoneGroup.children.length) zoneGroup.remove(zoneGroup.children[0]);
+            for (const [name, [zx, zy]] of Object.entries(zones)) {
+                const zone = new THREE.Mesh(
+                    new THREE.PlaneGeometry(ZONE_HALF * 2, ZONE_HALF * 2),
+                    new THREE.MeshBasicMaterial({
+                        color: ZONE_COLORS[name] || '#666', transparent: true, opacity: 0.18,
+                        depthWrite: false }));
+                zone.rotation.x = -Math.PI / 2;
+                zone.position.set(zx, 0.02, -zy);
+                zoneGroup.add(zone);
+
+                const label = makeTextSprite(name, ZONE_COLORS[name] || '#888');
+                label.position.set(zx, 1.2, -zy);
+                zoneGroup.add(label);
+            }
+        }
+        renderZones(ZONES);
+
+        // ========== AGV 管理（robot_id → Group，轮询更新位姿） ==========
+        const robotMeshes = new Map();
+
+        function buildRobotMesh(robotId, colorName) {
+            const hex = ROBOT_HEX[colorName] || '#4caf50';
+            const group = new THREE.Group();
+
+            // 车身
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(...AGV_BODY_SIZE),
+                new THREE.MeshStandardMaterial({ color: hex, roughness: 0.5 }));
+            body.position.y = AGV_BODY_Z_OFFSET;
+            group.add(body);
+
+            // 车头朝向指示（前端小凸块）
+            const nose = new THREE.Mesh(
+                new THREE.BoxGeometry(0.1, 0.06, 0.16),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }));
+            nose.position.set(AGV_BODY_SIZE[0] / 2 + 0.05, AGV_BODY_Z_OFFSET, 0);
+            group.add(nose);
+
+            // 4 轮（深色圆柱，轴线沿 z 即左右方向）
+            const wheelGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_LEN, 16);
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7 });
+            for (const [wx, wy] of WHEEL_POS) {
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.rotation.x = Math.PI / 2;           // Y 轴 → Z 轴（轮轴沿左右）
+                wheel.position.set(wx, WHEEL_R - 0.01, -wy);
+                group.add(wheel);
+            }
+
+            // 名字标签（头顶 sprite）
+            const nameLabel = makeTextSprite(robotId, '#ffffff');
+            nameLabel.position.y = 0.9;
+            nameLabel.scale.set(1.2, 0.6, 1);
+            group.add(nameLabel);
+
+            group.userData = { robotId };
+            scene.add(group);
+            robotMeshes.set(robotId, group);
+            return group;
+        }
+
+        function syncRobots(robots) {
+            // 只更新“目标位姿”，实际渲染由 animate 里的插值平滑推进
+            const alive = new Set();
+            for (const r of robots) {
+                alive.add(r.robot_id);
+                let g = robotMeshes.get(r.robot_id);
+                if (!g) g = buildRobotMesh(r.robot_id, r.color);
+
+                const [x, y] = r.position;
+                const ud = g.userData;
+                ud.targetX = x;
+                ud.targetZ = -y;                              // 仿真 y → three -z
+                ud.targetYaw = (r.yaw || 0) * Math.PI / 180;  // 0=东, 90=北
+                ud.targetLift = (selectedRobot === r.robot_id) ? 0.15 : 0;
+                ud.targetSet = true;
+            }
+            // 清理已删除的车
+            for (const [id, g] of robotMeshes) {
+                if (!alive.has(id)) {
+                    scene.remove(g);
+                    robotMeshes.delete(id);
+                }
+            }
+        }
+
+        // 每帧对目标位姿做指数平滑（视觉连续，避免 0.1s 采样跳变）
+        function smoothRobots() {
+            for (const g of robotMeshes.values()) {
+                const ud = g.userData;
+                if (!ud.targetSet) continue;
+                g.position.x += (ud.targetX - g.position.x) * 0.3;
+                g.position.z += (ud.targetZ - g.position.z) * 0.3;
+                g.position.y += (ud.targetLift - g.position.y) * 0.2;
+                // yaw 平滑（处理 ±π 环绕）
+                let d = ud.targetYaw - g.rotation.y;
+                while (d > Math.PI) d -= 2 * Math.PI;
+                while (d < -Math.PI) d += 2 * Math.PI;
+                g.rotation.y += d * 0.3;
+            }
+        }
+
+        // ========== 动画循环 ==========
+        let frames = 0, fpsTime = performance.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            smoothRobots();
+            renderer.render(scene, camera);
+            frames++;
+            const now = performance.now();
+            if (now - fpsTime > 1000) {
+                document.getElementById('fpsCounter').textContent = `${Math.round(frames * 1000 / (now - fpsTime))} FPS`;
+                frames = 0; fpsTime = now;
+            }
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        // ========== 前端状态与 API ==========
+        let selectedRobot = null;
+        let simData = { scene: null, robots: [] };
+
+        window.selectRobot = function (id) {
+            selectedRobot = (selectedRobot === id) ? null : id;
+            updateCtrlPanel();
+            updateUI();
+        };
+
+        function updateCtrlPanel() {
+            const section = document.getElementById('ctrlSection');
+            const target = document.getElementById('ctrlTarget');
+            if (selectedRobot) {
+                section.style.display = '';
+                target.textContent = `[${selectedRobot}]`;
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        async function api(path, opts = {}) {
+            const url = path.startsWith('http') ? path : `${API}${path}`;
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(await res.text());
+            return res.json();
+        }
+
+        async function checkStatus() {
+            try {
+                const data = await api('/sim/status');
+                document.getElementById('apiStatus').innerHTML =
+                    '<span class="status-dot online"></span>在线';
+                simData = data;
+                // 用后端 scene 几何校正货架/区域（所见即所仿，fallback 常量）
+                const sc = data.scene || {};
+                if (Array.isArray(sc.shelves) && sc.shelves.length) {
+                    renderShelves(sc.shelves.map(([x, y]) => [x, y]));
+                }
+                if (sc.zones && Object.keys(sc.zones).length) {
+                    renderZones(sc.zones);
+                }
+                syncRobots(data.robots || []);
+                updateUI();
+            } catch (e) {
+                document.getElementById('apiStatus').innerHTML =
+                    '<span class="status-dot offline"></span>离线';
+            }
+        }
+
+        function updateUI() {
+            const sceneInfo = simData.scene || {};
+            document.getElementById('sceneInfo').innerHTML = `
+                ${sceneInfo.mode === 'gui' ? '🖥️' : '⚙️'} ${(sceneInfo.mode || '?').toUpperCase()} |
+                ${sceneInfo.warehouse_size || 10}m × ${sceneInfo.warehouse_size || 10}m<br>
+                障碍: ${sceneInfo.obstacle_count || 0} | 区域: 4
+            `;
+            document.getElementById('robotCount').textContent = `(${simData.robots?.length || 0})`;
+
+            const list = document.getElementById('robotList');
+            if (!simData.robots || simData.robots.length === 0) {
+                list.innerHTML = '<div style="font-size:12px;color:#555;">无AGV运行中</div>';
+            } else {
+                const zoneColor = { A: '#4caf50', B: '#42a5f5', C: '#ab47bc', D: '#ff9800', '走道': '#666' };
+                list.innerHTML = simData.robots.map(r => `
+                    <div class="robot-card ${selectedRobot === r.robot_id ? 'selected' : ''}"
+                         onclick="selectRobot('${r.robot_id}')">
+                        <div class="robot-dot" style="background:${ROBOT_HEX[r.color] || '#4caf50'};"></div>
+                        <div class="robot-info">
+                            <div class="name">${r.robot_id}</div>
+                            <div class="pos">(${r.position[0].toFixed(1)}, ${r.position[1].toFixed(1)})</div>
+                        </div>
+                        <span class="robot-zone" style="color:${zoneColor[r.zone] || '#666'};">${r.zone}</span>
+                        <button class="btn btn-sm btn-danger"
+                            onclick="event.stopPropagation(); deleteRobot('${r.robot_id}')">✕</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // ========== 操作（复用 sim.html 的 API） ==========
+        window.quickCreate = async function () {
+            const colors = ['blue', 'green', 'orange', 'red', 'purple'];
+            const existing = (simData.robots || []).map(r => r.robot_id);
+            let idx = 1;
+            while (existing.includes(`agv_${idx}`)) idx++;
+            const id = `agv_${idx}`;
+            const color = colors[(idx - 1) % colors.length];
+            try {
+                await api(`/sim/robot/create?robot_id=${id}&x=0&y=0&color=${color}`, { method: 'POST' });
+                toast(`${id} 已就绪`, 'info');
+                await checkStatus();
+            } catch (e) { toast('创建失败: ' + e.message, 'error'); }
+        };
+
+        window.deleteRobot = async function (id) {
+            try {
+                await api(`/sim/robot/${id}`, { method: 'DELETE' });
+                if (selectedRobot === id) selectedRobot = null;
+                updateCtrlPanel();
+                toast(`${id} 已移除`, 'info');
+                await checkStatus();
+            } catch (e) { toast('删除失败', 'error'); }
+        };
+
+        window.moveToZone = async function (zone) {
+            if (!selectedRobot) { toast('请先选择小车', 'error'); return; }
+            try {
+                await api(`/sim/robot/${selectedRobot}/move-by-zone?zone=${zone}`, { method: 'POST' });
+                toast(`${selectedRobot} → ${zone}区`, 'info');
+                await checkStatus();
+            } catch (e) { toast('移动失败', 'error'); }
+        };
+
+        window.moveToXY = async function () {
+            if (!selectedRobot) { toast('请先选择小车', 'error'); return; }
+            const x = parseFloat(document.getElementById('moveX').value);
+            const y = parseFloat(document.getElementById('moveY').value);
+            if (isNaN(x) || isNaN(y)) { toast('请输入坐标', 'error'); return; }
+            try {
+                await api(`/sim/robot/${selectedRobot}/move?x=${x}&y=${y}`, { method: 'POST' });
+                toast(`${selectedRobot} → (${x}, ${y})`, 'info');
+                await checkStatus();
+            } catch (e) { toast('移动失败', 'error'); }
+        };
+
+        window.resetAll = async function () {
+            try {
+                await api('/sim/reset', { method: 'POST' });
+                selectedRobot = null;
+                updateCtrlPanel();
+                toast('场景已重置', 'info');
+                await checkStatus();
+            } catch (e) { toast('重置失败', 'error'); }
+        };
+
+        // ========== 点击交互：选车 / 点地面移动（W7-3） ==========
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let targetMarker = null;
+
+        renderer.domElement.addEventListener('click', (e) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+
+            // 1) 优先判断是否点到车（车身/车头 mesh → 选中）
+            const hitMeshes = [];
+            const hitRobotId = new Map();
+            for (const [id, g] of robotMeshes) {
+                for (const child of g.children) {
+                    if (child.isMesh) { hitMeshes.push(child); hitRobotId.set(child, id); }
+                }
+            }
+            const robotHits = raycaster.intersectObjects(hitMeshes, false);
+            if (robotHits.length > 0) {
+                const id = hitRobotId.get(robotHits[0].object);
+                selectRobot(id);
+                toast(`已选中 ${id}`, 'info');
+                return;
+            }
+
+            // 2) 点到地面 → 换算仿真坐标，让选中车开过去
+            const groundHits = raycaster.intersectObject(ground, false);
+            if (groundHits.length > 0) {
+                const p = groundHits[0].point;              // three (x, z)
+                const simX = p.x, simY = -p.z;               // → 仿真 (x, y)
+                if (Math.abs(simX) > W / 2 || Math.abs(simY) > W / 2) return;  // 仓库外
+                if (!selectedRobot) { toast('请先点击小车选中', 'error'); return; }
+                moveRobotTo(simX, simY);
+            }
+        });
+
+        async function moveRobotTo(x, y) {
+            try {
+                await api(`/sim/robot/${selectedRobot}/move?x=${x.toFixed(2)}&y=${y.toFixed(2)}`,
+                    { method: 'POST' });
+                showTargetMarker(x, y);
+                toast(`${selectedRobot} → (${x.toFixed(1)}, ${y.toFixed(1)})`, 'info');
+            } catch (e) { toast('移动失败: ' + e.message, 'error'); }
+        }
+
+        function showTargetMarker(x, y) {
+            if (targetMarker) scene.remove(targetMarker);
+            targetMarker = new THREE.Mesh(
+                new THREE.RingGeometry(0.25, 0.4, 32),
+                new THREE.MeshBasicMaterial({
+                    color: 0xe94560, side: THREE.DoubleSide,
+                    transparent: true, opacity: 0.9 }));
+            targetMarker.rotation.x = -Math.PI / 2;
+            targetMarker.position.set(x, 0.05, -y);
+            scene.add(targetMarker);
+            clearTimeout(targetMarker._timer);
+            targetMarker._timer = setTimeout(() => {
+                if (targetMarker) scene.remove(targetMarker);
+                targetMarker = null;
+            }, 3000);
+        }
+
+        function toast(msg, type) {
+            const el = document.createElement('div');
+            el.className = 'toast ' + type;
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
+        }
+
+        // ========== 初始化：SSE 推送位姿 + 低频轮询兜底 ==========
+        let lastListUpdate = 0;
+        function throttledListUpdate(force = false) {
+            const now = performance.now();
+            if (!force && now - lastListUpdate < 500) return;  // 0.1s 帧率下列表最多 2Hz 重绘
+            lastListUpdate = now;
+            updateUI();
+        }
+
+        const es = new EventSource(`${API}/sim/stream`);
+        es.onmessage = (ev) => {
+            try {
+                const data = JSON.parse(ev.data);
+                if (Array.isArray(data.robots)) {
+                    simData.robots = data.robots;
+                    syncRobots(data.robots);
+                    throttledListUpdate();
+                    document.getElementById('apiStatus').innerHTML =
+                        '<span class="status-dot online"></span>推送中';
+                }
+            } catch (e) { /* 忽略坏帧 */ }
+        };
+        es.onerror = () => {
+            // EventSource 自动重连；标记降级为轮询
+            document.getElementById('apiStatus').innerHTML =
+                '<span class="status-dot offline"></span>重连中';
+        };
+
+        checkStatus();
+        setInterval(checkStatus, 5000);   // 场景信息/车队列表兜底刷新（SSE 负责位姿）
+    </script>
+</body>
+</html>

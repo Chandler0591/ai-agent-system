@@ -57,6 +57,41 @@ ROBOT_COLORS = {
     "purple": [0.7, 0.3, 0.9, 1.0],
 }
 
+# ========== 车-车避障（公共纯函数，双后端共用） ==========
+
+ROBOT_STOP_DISTANCE = 0.6    # 前方车距 < 此值停车等待（车长 0.7 + 余量）
+ROBOT_SLOW_DISTANCE = 1.2    # 前方车距 < 此值减速一半
+ROBOT_BLOCK_CONE_COS = 0.2   # 前方判定锥（投影 cos > 此值视为在前方）
+
+
+def compute_blocking_factor(robot_pos, target, other_positions) -> float:
+    """
+    车-车避障减速因子：1.0 正常 / 0.5 缓行 / 0.0 停车等待。
+
+    只对“前进方向锥内”的邻近车生效（避免身后/侧面无关车误挡）；
+    距离越近降得越狠，小于 ROBOT_STOP_DISTANCE 直接停车。
+    """
+    dx, dy = target[0] - robot_pos[0], target[1] - robot_pos[1]
+    remaining = math.hypot(dx, dy)
+    if remaining < 1e-6:
+        return 1.0
+    ux, uy = dx / remaining, dy / remaining
+
+    factor = 1.0
+    for (ox, oy) in other_positions:
+        rx, ry = ox - robot_pos[0], oy - robot_pos[1]
+        dist = math.hypot(rx, ry)
+        if dist <= 1e-6 or dist >= ROBOT_SLOW_DISTANCE:
+            continue
+        # 另一车在本车前进方向的投影占比（>0 在前方，<0 在身后）
+        if (rx * ux + ry * uy) / dist <= ROBOT_BLOCK_CONE_COS:
+            continue
+        if dist < ROBOT_STOP_DISTANCE:
+            return 0.0
+        factor = min(factor, 0.5)
+    return factor
+
+
 # ========== 辅助函数 ==========
 
 def get_zone_name(x: float, y: float) -> str:

@@ -7,7 +7,11 @@
 - 返回 JSON，与前端 SSE/轮询无缝对接
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+import asyncio
+import json
+
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from typing import Optional
 
 from app.sim_engine import get_sim
@@ -226,6 +230,40 @@ async def sim_check_obstacle(
     except Exception as e:
         logger.error(f"障碍检测失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== SSE 位置推送 ==========
+
+@sim_router.get("/stream")
+async def sim_stream(request: Request):
+    """
+    SSE 推送所有 AGV 位姿（每 0.1s 一帧，供 3D 前端实时渲染）
+
+    事件格式：data: {"robots": [{"robot_id", "position", "yaw", "status", ...}]}
+    与 GET /status 的 robots 字段同构，前端可无缝切换轮询/推送。
+    """
+    async def generate():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                sim = get_sim()
+                robots = sim.get_all_robots()
+                yield f"data: {json.dumps({'robots': robots}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.warning(f"SSE 采样失败: {e}")
+                yield f"data: {json.dumps({'robots': []}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",   # 防反向代理缓冲
+        },
+    )
 
 
 # ========== 场景管理 ==========

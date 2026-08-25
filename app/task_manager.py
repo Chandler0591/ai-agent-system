@@ -12,19 +12,20 @@ class TaskManager:
     def __init__(self):
         self.tasks: Dict[str, Dict] = {}
     
-    def create_task(self, task_type: str, params: Dict) -> str:
-        """创建任务"""
+    def create_task(self, task_type: str, params: Dict, priority: int = 0) -> str:
+        """创建任务（priority 越大越优先，0 为默认）"""
         task_id = params.get("task_id") or str(uuid.uuid4())
         self.tasks[task_id] = {
             "id": task_id,
             "type": task_type,
             "params": params,
             "status": "pending",
+            "priority": priority,
             "created_at": datetime.now().isoformat(),
             "result": None,
             "error": None
         }
-        logger.info(f"创建任务: {task_id}, 类型: {task_type}")
+        logger.info(f"创建任务: {task_id}, 类型: {task_type}, 优先级: {priority}")
         return task_id
     
     def update_task(self, task_id: str, status: str, result: Any = None, error: str = None):
@@ -45,10 +46,18 @@ class TaskManager:
         return self.tasks.get(task_id)
     
     def get_tasks(self, limit: int = 50) -> list:
-        """获取任务列表"""
+        """获取任务列表：优先级降序（高优先级插队），同级按创建时间降序"""
         tasks = list(self.tasks.values())
-        tasks.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        tasks.sort(key=lambda x: (x.get("priority", 0), x.get("created_at", "")), reverse=True)
         return tasks[:limit]
+
+    def get_next_pending(self) -> Optional[Dict]:
+        """取下一个待执行任务（pending 中优先级最高、创建最早者）"""
+        pending = [t for t in self.tasks.values() if t["status"] == "pending"]
+        if not pending:
+            return None
+        pending.sort(key=lambda x: (-x.get("priority", 0), x.get("created_at", "")))
+        return pending[0]
 
 
 # 全局实例

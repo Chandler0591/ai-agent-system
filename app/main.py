@@ -611,5 +611,13 @@ async def serve_frontend():
 async def serve_sim():
     return FileResponse(os.path.join(web_dir, "sim.html"))
 
+@app.get("/index3d.html")
+async def serve_sim3d():
+    return FileResponse(os.path.join(web_dir, "index3d.html"))
+
+@app.get("/intro.html")
+async def serve_intro():
+    return FileResponse(os.path.join(web_dir, "intro.html"))
+
 if os.path.exists(web_dir):
     app.mount("/web", StaticFiles(directory=web_dir), name="web")

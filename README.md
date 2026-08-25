@@ -2,7 +2,9 @@
 
 > **[ai-agent-system](https://github.com/Chandler0591/ai-agent-system)** 仿真模块 | `feature/simulation` 分支
 
-基于 **PyBullet / Gazebo-ROS 2 双仿真后端 + FastAPI + LangGraph Agent** 的仓库调度仿真系统，后端通过 `SIM_BACKEND` 环境变量热切换（PyBullet 轻量默认，Gazebo + ROS 2 Humble 物理驱动）。10m×10m 物理仿真环境，支持 AGV 小车创建/移动/障碍检测，Agent 自然语言控制，2D Canvas 实时可视化。
+基于 **PyBullet / Gazebo-ROS 2 双仿真后端 + FastAPI + LangGraph Agent** 的仓库调度仿真系统，后端通过 `SIM_BACKEND` 环境变量热切换（PyBullet 轻量默认，Gazebo + ROS 2 Humble 物理驱动）。10m×10m 物理仿真环境，支持 AGV 创建/移动/多车避障/优先级任务队列，Agent 自然语言控制，3D 鸟瞰（Three.js）+ 2D Canvas 实时可视化。
+
+> 📺 产品介绍页：[web/intro.html](web/intro.html) · 🧊 3D 演示：[web/index3d.html](web/index3d.html)
 
 ---
 
@@ -22,10 +24,12 @@ Agent 🧠: 理解意图 → 调用 move_robot("agv_1", zone="B")
 |------|------|
 | 物理引擎 | PyBullet DIRECT/GUI 与 Gazebo+ROS 2 双后端，重力 + 碰撞检测 |
 | AGV 管理 | 创建/删除/移动/速度控制，支持 yaw 初始朝向 |
+| 多车避障 | 车-车距离检测降速/等待（PyBullet 运动环）+ 调度层错峰（Gazebo），防穿模校验 |
 | 场景感知 | 激光雷达模拟 (rayTest)、距离计算、区域判定 |
-| REST API | 12 个端点，FastAPI 自动生成 `/docs` |
+| 任务队列 | TaskManager 优先级调度（高优先级插队，`get_next_pending` 出队） |
+| REST API | 13 个端点 + SSE 位置推送，FastAPI 自动生成 `/docs` |
 | Agent 工具 | move_robot / get_robot_status / check_obstacle / check_distance |
-| 可视化 | Canvas 2D 俯瞰（货架/区域/AGV朝向），3秒轮询 |
+| 可视化 | 3D 鸟瞰（Three.js）+ 2D 俯瞰，SSE 0.1s 推送 + 插值平滑 |
 
 ---
 
@@ -52,6 +56,30 @@ Agent 🧠: 理解意图 → 调用 move_robot("agv_1", zone="B")
 - **货架**: 4 个静态障碍体（有碰撞）
 - **区域**: A/B/C/D 四个 2.4m×2.4m 目标区（无碰撞）
 - **AGV**: 盒体 + 4 轮子，1kg，颜色可配
+
+## 🏗️ 系统架构
+
+```
+浏览器 🧊 3D 视图 / 🗺️ 2D 视图（web/）
+   │  REST /api/sim/*  ·  SSE /api/sim/stream（0.1s 位姿推送）
+   ▼
+FastAPI（app/main.py + sim_api.py）
+   │  ┌─ 自然语言 ────────────────────────────┐
+   │  │  Agent（langgraph_agent + tools）      │
+   │  │  "把 agv_1 移到 B 区" → move_robot()   │
+   │  └──────────────┬────────────────────────┘
+   │                 ▼
+   │  TaskManager（优先级队列，Celery 旁路异步任务）
+   │                 │
+   ▼                 ▼
+SimBackend 抽象接口（app/sim_backend.py）
+   ├── PyBulletBackend（sim_engine.py）─── 本地物理，运动环车-车避障
+   └── GazeboBackend（sim_gazebo.py）───── ROS 2：MoveToServer 20Hz 闭环 + 调度层错峰
+```
+
+- **一切从接口走**：上层（Agent/API/前端）只面对 `SimBackend`，`SIM_BACKEND` 环境变量切换 PyBullet/Gazebo 零改动
+- **所见即所仿**：前端几何镜像 `sim_geometry.py`，并从 `GET /api/sim/status` 的 scene 信息校正货架/区域
+- **双避障**：静态货架防穿模（目标点+直线路径校验）+ 车-车动态避障（距离检测降速/等待 + 错峰）
 
 ---
 
@@ -80,6 +108,17 @@ curl -s -X POST "http://localhost:8000/api/agent/run" \
 SIM_MODE=gui python3 scripts/sim_demo.py
 # 左键拖拽旋转 | 滚轮缩放 | Ctrl+左键平移
 ```
+
+**新成员 10 分钟上手**（零代码体验全链路）：
+
+```bash
+docker compose up -d api
+```
+
+1. 浏览器打开 `http://localhost:8000/index3d.html`（3D 鸟瞰：滚轮缩放 / 右键旋转 / 中键平移）
+2. 左侧面板点 **+ 快速创建** → 场景里出现 AGV
+3. 点击小车选中 → 点击地面任意位置 → 小车开过去（点击 → 坐标 → 移动闭环）
+4. 打开 `http://localhost:8000/docs` 调 `POST /api/sim/robot/{id}/move-by-zone?zone=B` 体验 REST 控制
 
 ---
 
@@ -168,9 +207,10 @@ SIM_BACKEND=gazebo python3 scripts/sim_demo.py
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/sim/status` | 仓库场景 + 所有机器人 |
+| GET | `/api/sim/status` | 仓库场景（含货架/区域几何） + 所有机器人 |
 | POST | `/api/sim/reset` | 重置（清空AGV，保留场景） |
 | GET | `/api/sim/zones` | 区域定义 |
+| GET | `/api/sim/stream` | SSE 位置推送（0.1s 一帧，供 3D 前端实时渲染） |
 
 ### 机器人
 
@@ -202,11 +242,13 @@ SIM_BACKEND=gazebo python3 scripts/sim_demo.py
 
 ## 🖥️ 前端控制台
 
-浏览器打开 `http://localhost:8000/sim.html`：
+| 页面 | 地址 | 说明 |
+|------|------|------|
+| 🧊 3D 视图 | `http://localhost:8000/index3d.html` | Three.js 鸟瞰（货架/区域/AGV），SSE 实时推送 + 插值平滑，点击小车选中 / 点地面移动 |
+| 🗺️ 2D 视图 | `http://localhost:8000/sim.html` | Canvas 俯瞰，AI 调度对话入口 |
 
-- **🗺️ 2D 俯瞰**：Canvas 实时渲染（货架/区域/AGV 朝向三角）
 - **🤖 车队管理**：一键创建（顺序命名 agv_1/2/3...）、删除、选中
-- **🎮 手动控制**：坐标移动 / 区域跳转（A/B/C/D）
+- **🎮 手动控制**：坐标移动 / 区域跳转（A/B/C/D）/ 点地面移动
 - **🧠 AI 调度**：自然语言输入 → Agent 工具调用 → 仿真执行
 
 ---
@@ -220,13 +262,15 @@ app/
 ├── sim_gazebo.py        # Gazebo 后端（GazeboBackend）
 ├── sim_gazebo_robot.py  # ROS2 机器人封装（odom/cmd_vel/真值）
 ├── sim_gazebo_srv.py    # move_to 服务端/客户端（20Hz 闭环）
-├── sim_geometry.py      # 仓库几何常量（防穿模校验）
-├── sim_api.py           # FastAPI 路由（12 个端点）
+├── sim_geometry.py      # 仓库几何常量 + 车-车避障纯函数（双后端共用）
+├── sim_api.py           # FastAPI 路由（13 端点 + SSE 推送）
+├── task_manager.py      # 异步任务管理（优先级调度）
 ├── tools.py             # Agent 工具注册（4 个仿真工具）
 └── langgraph_agent.py   # Agent 工作流 + 提示词
 
 web/
-└── sim.html         # 仿真控制台（Canvas 2D + AI 调度）
+├── index3d.html     # 3D 鸟瞰视图（Three.js + SSE + 点击交互）
+└── sim.html         # 2D 仿真控制台（Canvas + AI 调度）
 
 scripts/
 ├── run_demo.sh          # 一键演示编排（清场→起服务端→演示→统一清理）

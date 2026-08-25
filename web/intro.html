@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 调度仿真系统 — 智能仓储 AGV 解决方案</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23; color: #e0e0e0; line-height: 1.7;
+        }
+        a { color: #e94560; text-decoration: none; }
+
+        .hero {
+            text-align: center; padding: 90px 24px 70px;
+            background: radial-gradient(ellipse at 50% -20%, #1a2a5e 0%, #0f0f23 60%);
+        }
+        .hero .badge {
+            display: inline-block; font-size: 12px; color: #a0a0c0;
+            border: 1px solid #2a2a5e; border-radius: 20px; padding: 4px 14px; margin-bottom: 18px;
+        }
+        .hero h1 { font-size: 42px; color: #fff; margin-bottom: 14px; }
+        .hero h1 span { color: #e94560; }
+        .hero p.sub { font-size: 16px; color: #a0a0c0; max-width: 640px; margin: 0 auto 30px; }
+        .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+        .cta a {
+            padding: 11px 26px; border-radius: 8px; font-size: 14px; font-weight: 600;
+        }
+        .cta .primary { background: #e94560; color: #fff; }
+        .cta .primary:hover { background: #d63850; }
+        .cta .ghost { border: 1px solid #2a2a5e; color: #a0a0c0; }
+        .cta .ghost:hover { border-color: #e94560; color: #fff; }
+
+        .section { max-width: 1080px; margin: 0 auto; padding: 60px 24px; }
+        .section h2 { text-align: center; font-size: 26px; color: #fff; margin-bottom: 8px; }
+        .section .desc { text-align: center; color: #888; font-size: 14px; margin-bottom: 36px; }
+
+        .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+        .card {
+            background: #16213e; border-radius: 12px; padding: 24px;
+            border: 1px solid #1a1a3e; transition: transform 0.2s, border-color 0.2s;
+        }
+        .card:hover { transform: translateY(-4px); border-color: #e94560; }
+        .card .icon { font-size: 28px; margin-bottom: 10px; }
+        .card h3 { font-size: 15px; color: #fff; margin-bottom: 8px; }
+        .card p { font-size: 13px; color: #a0a0c0; }
+
+        .flow {
+            background: #16213e; border-radius: 12px; border: 1px solid #1a1a3e;
+            padding: 30px; font-size: 14px; text-align: center;
+        }
+        .flow .step {
+            display: inline-block; background: #1a1a3e; border-radius: 8px;
+            padding: 10px 20px; margin: 6px; font-size: 13px;
+        }
+        .flow .arrow { color: #e94560; margin: 0 4px; }
+
+        .stack { text-align: center; }
+        .stack .tag {
+            display: inline-block; background: #1a1a3e; border: 1px solid #2a2a5e;
+            border-radius: 6px; padding: 5px 14px; margin: 4px; font-size: 12px; color: #a0a0c0;
+        }
+
+        footer {
+            text-align: center; padding: 40px 24px; color: #666; font-size: 12px;
+            border-top: 1px solid #1a1a3e;
+        }
+
+        @media (max-width: 800px) { .cards { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <div class="hero">
+        <div class="badge">物理级仿真 · 实时可视化 · Agent 调度</div>
+        <h1>AI <span>调度仿真</span>系统</h1>
+        <p class="sub">
+            面向智能仓储的 AGV 调度仿真平台：10m×10m 物理仿真场景，
+            双引擎驱动（PyBullet / Gazebo + ROS 2），自然语言下达调度指令，
+            3D 实时呈现多车协同运行。
+        </p>
+        <div class="cta">
+            <a class="primary" href="/index3d.html">进入 3D 演示 →</a>
+            <a class="ghost" href="/sim.html">2D 控制台</a>
+            <a class="ghost" href="/docs" target="_blank">API 文档</a>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>核心能力</h2>
+        <p class="desc">从物理引擎到前端可视化的一体化闭环</p>
+        <div class="cards">
+            <div class="card">
+                <div class="icon">⚙️</div>
+                <h3>双后端物理仿真</h3>
+                <p>PyBullet 轻量本地仿真与 Gazebo + ROS 2 物理驱动后端，共享同一套几何常量与 AGV URDF 模型，环境变量一键切换。</p>
+            </div>
+            <div class="card">
+                <div class="icon">🧊</div>
+                <h3>3D 实时可视化</h3>
+                <p>Three.js 鸟瞰视图：货架/装卸区/AGV 三维建模，SSE 每 0.1s 推送位姿 + 前端插值平滑，所见即所仿。</p>
+            </div>
+            <div class="card">
+                <div class="icon">🧠</div>
+                <h3>自然语言调度</h3>
+                <p>“把 agv_1 移到 B 区” —— LangGraph Agent 理解意图、调用仿真工具链，点击地图与对话双通道控制。</p>
+            </div>
+            <div class="card">
+                <div class="icon">🚦</div>
+                <h3>多车避障</h3>
+                <p>静态货架防穿模校验（目标点 + 直线路径）+ 车-车动态避障：距离检测降速/等待、调度层错峰，多车同场无碰撞。</p>
+            </div>
+            <div class="card">
+                <div class="icon">📋</div>
+                <h3>任务优先级队列</h3>
+                <p>TaskManager 支持优先级字段：高优先级插队、`get_next_pending` 按序出队，Celery 异步任务旁路。</p>
+            </div>
+            <div class="card">
+                <div class="icon">📡</div>
+                <h3>REST + SSE 开放接口</h3>
+                <p>13 个 REST 端点 + SSE 位置推送，FastAPI 自动生成文档，任何前端/Agent 均可即插即用。</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>工作流程</h2>
+        <p class="desc">一次调度请求的完整旅程</p>
+        <div class="flow">
+            <span class="step">🧭 点地图 / 对话下达指令</span><span class="arrow">→</span>
+            <span class="step">📋 任务入队（优先级排序）</span><span class="arrow">→</span>
+            <span class="step">⚙️ 仿真后端执行（避障/防穿模）</span><span class="arrow">→</span>
+            <span class="step">📡 SSE 实时推送位姿</span><span class="arrow">→</span>
+            <span class="step">🧊 3D 视图平滑呈现</span>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>技术栈</h2>
+        <div class="stack">
+            <span class="tag">Python 3.12</span>
+            <span class="tag">FastAPI</span>
+            <span class="tag">PyBullet</span>
+            <span class="tag">Gazebo + ROS 2 Humble</span>
+            <span class="tag">LangGraph</span>
+            <span class="tag">Three.js</span>
+            <span class="tag">SSE</span>
+            <span class="tag">Docker Compose</span>
+            <span class="tag">Redis</span>
+            <span class="tag">PostgreSQL</span>
+            <span class="tag">Celery</span>
+        </div>
+    </div>
+
+    <footer>
+        AI 调度仿真系统 · <a href="https://github.com/Chandler0591/ai-agent-system" target="_blank">GitHub</a>
+        · 文档：<a href="https://github.com/Chandler0591/ai-agent-system/blob/feature/simulation/docs/gazebo-ros2-roadmap.md" target="_blank">路线图</a>
+    </footer>
+</body>
+</html>

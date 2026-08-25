@@ -30,6 +30,7 @@ from app.sim_geometry import (
     ROBOT_COLORS,
     get_zone_name,
     check_path_clear,
+    compute_blocking_factor,
 )
 
 # AGV URDF 模型路径（与 Gazebo 共用同一文件）
@@ -66,6 +67,7 @@ class PyBulletBackend(SimBackend):
         self.robot_status: Dict[str, str] = {}              # robot_id → idle/moving/arrived
         self.robot_targets: Dict[str, Tuple[float, float]] = {}  # robot_id → (tx, ty)
         self.robot_speeds: Dict[str, float] = {}            # robot_id → m/s
+        self.robot_wait_ticks: Dict[str, int] = {}          # robot_id → 连续停车 tick 数（避障防死锁）
         self._motion_lock = threading.Lock()
         self._stop_motion = threading.Event()
 
@@ -215,7 +217,25 @@ class PyBulletBackend(SimBackend):
                         self.robot_targets.pop(robot_id, None)
                         logger.info(f"{robot_id} 到达目标 ({tx:.2f}, {ty:.2f})")
                     else:
+                        # 车-车避障：前进方向锥内有车时降速/停车，等太久强制缓行防死锁
+                        other_positions = [
+                            p.getBasePositionAndOrientation(b)[0][:2]
+                            for rid, b in self.robots.items() if rid != robot_id
+                        ]
+                        factor = compute_blocking_factor(
+                            [pos[0], pos[1]], [tx, ty], other_positions)
+                        if factor <= 0.0:
+                            ticks = self.robot_wait_ticks.get(robot_id, 0) + 1
+                            self.robot_wait_ticks[robot_id] = ticks
+                            if ticks > 100:   # 连续停车 5s 未疏通，0.3 速强制通行
+                                factor = 0.3
+                            else:
+                                continue     # 本 tick 停车等待
+                        else:
+                            self.robot_wait_ticks.pop(robot_id, None)
+
                         # 小步推进，车头朝向目标
+                        step_dist = speed * factor * dt
                         nx = pos[0] + dx / remaining * step_dist
                         ny = pos[1] + dy / remaining * step_dist
                         yaw = math.degrees(math.atan2(dy, dx))
@@ -319,6 +339,7 @@ class PyBulletBackend(SimBackend):
         self.robot_status.pop(robot_id, None)
         with self._motion_lock:
             self.robot_targets.pop(robot_id, None)
+            self.robot_wait_ticks.pop(robot_id, None)
         self.robot_speeds.pop(robot_id, None)
         p.removeBody(body_id)
         logger.info(f"已删除机器人: {robot_id}")
@@ -386,6 +407,7 @@ class PyBulletBackend(SimBackend):
             self.robot_targets[robot_id] = (x, y)
             self.robot_speeds[robot_id] = speed
             self.robot_status[robot_id] = "moving"
+            self.robot_wait_ticks[robot_id] = 0   # 新任务重置避障等待计数
 
         logger.info(f"{robot_id} 开始移动 → ({x:.2f}, {y:.2f}) 距离={distance:.2f}m speed={speed}m/s")
         return {
@@ -453,6 +475,8 @@ class PyBulletBackend(SimBackend):
         return {
             "warehouse_size": WAREHOUSE_SIZE,
             "zones": {k: list(v) for k, v in ZONES.items()},
+            "shelves": [list(s) for s in SHELF_POSITIONS],
+            "shelf_half_extents": list(SHELF_HALF_EXTENTS),
             "robot_count": len(self.robots),
             "obstacle_count": len(self.obstacles),
             "step_count": self._step_count,

@@ -57,11 +57,19 @@ services:
       # 仿真可视化（本地调试设 SIM_MODE=gui，需 WSLg/Win11）
       - DISPLAY=${DISPLAY:-:0}
       - SIM_MODE=${SIM_MODE:-direct}
+      # 仿真后端切换：pybullet（默认，容器内可用）/ gazebo（需 ROS 2 环境）
+      - SIM_BACKEND=${SIM_BACKEND:-pybullet}
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     volumes:
       - ./:/app
       - chroma_data:/app/chroma_data
