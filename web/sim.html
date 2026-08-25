@@ -223,7 +223,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:8000/api';
+        const API = '/api';   // 相对路径：同源部署（8000 compose / 8001 ROS 容器均可用）
         let selectedRobot = null;
         let simData = { scene: null, robots: [] };
 

@@ -186,7 +186,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // ========== 常量（镜像 app/sim_geometry.py，保证所见即所仿） ==========
-        const API = 'http://localhost:8000/api';
+        const API = '/api';   // 相对路径：同源部署（8000 compose / 8001 ROS 容器均可用）
         const W = 10.0;                                   // 仓库边长
         const ZONES = { A: [2.5, 2.5], B: [-2.5, 2.5], C: [-2.5, -2.5], D: [2.5, -2.5] };
         const ZONE_COLORS = { A: '#4caf50', B: '#42a5f5', C: '#ab47bc', D: '#ff9800' };
